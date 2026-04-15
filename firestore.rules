@@ -1,0 +1,94 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: observations
+    // Document ID: auto-generated
+    // Fields:
+    //   - timestamp: timestamp (required)
+    //   - platform: string (required)
+    //   - prompt_text: string (required)
+    //   - mentioned_brand: bool
+    //   - sentiment_score: number
+    //   - status: string
+    //
+    // Collection: strategies
+    // Document ID: auto-generated
+    // Fields:
+    //   - prompt: string (required)
+    //   - intent: string (required)
+    //   - frequency: string (required)
+    //   - createdAt: string (required)
+    //
+    // Collection: admins
+    // Document ID: user UID
+    // Fields:
+    //   - role: string ("admin")
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Role-based admin check via Firestore document instead of hardcoded email
+    function isAdmin() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isValidObservation(data) {
+      return data.keys().hasAll(['timestamp', 'platform', 'prompt_text', 'status']) &&
+             data.platform is string && data.platform.size() < 100 &&
+             data.prompt_text is string && data.prompt_text.size() < 2000 &&
+             data.status in ['success', 'failed'];
+    }
+
+    function isValidStrategy(data) {
+      return data.keys().hasAll(['prompt', 'intent', 'frequency', 'createdAt']) &&
+             data.prompt is string && data.prompt.size() < 2000 &&
+             data.intent is string &&
+             data.frequency is string &&
+             data.createdAt is string;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /user_sessions/{sessionId} {
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.userId == request.auth.uid);
+    }
+
+    match /observations/{observationId} {
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.userId == request.auth.uid || !("userId" in resource.data));
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidObservation(request.resource.data);
+      allow update: if isAuthenticated() && (isAdmin() || resource.data.userId == request.auth.uid) && isValidObservation(request.resource.data);
+      allow delete: if isAuthenticated() && (isAdmin() || resource.data.userId == request.auth.uid);
+    }
+
+    match /strategies/{strategyId} {
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.userId == request.auth.uid || !("userId" in resource.data));
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidStrategy(request.resource.data);
+      allow update, delete: if isAuthenticated() && (isAdmin() || resource.data.userId == request.auth.uid);
+    }
+
+    match /admins/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow write: if false; // Admin documents are managed via Firebase Admin SDK only
+    }
+    
+    match /test/connection {
+      allow read: if isAuthenticated();
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "entities": {
+    "Observation": {
+      "title": "Observation",
+      "description": "A single monitoring event result from an AI platform.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "platform": { "type": "string" },
+        "intent_id": { "type": "string" },
+        "prompt_id": { "type": "string" },
+        "prompt_text": { "type": "string" },
+        "raw_response": { "type": "string" },
+        "screenshot_url": { "type": "string" },
+        "mentioned_brand": { "type": "boolean" },
+        "top_recommendation": { "type": "boolean" },
+        "sentiment_score": { "type": "number" },
+        "source_urls": { "type": "array", "items": { "type": "string" } },
+        "campaign_id": { "type": "string" },
+        "status": { "type": "string", "enum": ["success", "failed"] }
+      },
+      "required": ["timestamp", "platform", "prompt_text", "status"]
+    },
+    "Prompt": {
+      "title": "Prompt",
+      "description": "Configuration for a monitoring prompt.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "intent_id": { "type": "string" },
+        "expected_propositions": { "type": "array", "items": { "type": "string" } },
+        "active": { "type": "boolean" }
+      },
+      "required": ["text", "intent_id"]
+    }
+  },
+  "firestore": {
+    "/observations/{observationId}": {
+      "schema": "Observation",
+      "description": "Collection of monitoring results."
+    },
+    "/prompts/{promptId}": {
+      "schema": "Prompt",
+      "description": "Collection of configured prompts."
+    }
+  }
+}

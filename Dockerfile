@@ -7,7 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Copy package files and install dependencies
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm install --legacy-peer-deps && npm cache clean --force
 
 # Copy the rest of the application
 COPY . .

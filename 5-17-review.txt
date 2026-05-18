@@ -1,0 +1,165 @@
+# ST GEO Monitoring Hub — 项目全面审查报告
+
+## 项目概述
+
+ST GEO Monitoring Hub 是一个全栈品牌监控仪表盘，用于追踪意法半导体 (STMicroelectronics) 在中国 AI 平台（Kimi、豆包、DeepSeek、通义千问、文心一言）上的品牌可见度。前端 React 19 + TypeScript + Vite + Tailwind，后端 Express + Playwright 爬虫 + Gemini 评估引擎，数据存储 Firebase Auth + Firestore。
+
+---
+
+## 一、项目优势
+
+### 1. 创新性的产品概念
+- **AI 评估 AI**：用 Gemini 评估各家 AI 对 ST 品牌的提及、推荐排名、情感倾向，这是 GEO（Generative Engine Optimization）领域的前沿实践。
+- **完整的闭环**：从爬取 → 评估 → 存储 → 可视化，形成一个完整的品牌监测闭环。
+
+### 2. 架构设计清晰
+- **关注点分离**：`useFirestoreData` 负责数据获取，`useAnalytics` 负责纯计算，组件只负责渲染展示。
+- **实时更新**：Firestore `onSnapshot` 实现仪表盘自动刷新，无需手动拉取。
+- **服务端安全**：Gemini API Key 完全在服务端，前端永不接触。
+
+### 3. 良好的容错设计
+- **Mock 降级**：爬取失败时自动切换到模拟数据，`is_mock` 标记让 UI 清晰区分真实/模拟数据。
+- **多级 fallback**：CSS 选择器采用降级列表，找不到输入框、响应区域都有备用方案。
+
+### 4. 品牌一致性
+- Tailwind `@theme` 自定义了完整的 ST 品牌色板（ST-blue `#03234b`、ST-yellow `#ffd200`、ST-light-blue `#3cb4e5`、ST-red `#e60028`）。
+- 可复用组件类 (`st-card`, `st-button-primary`, `st-sidebar-item`) 保持视觉统一。
+
+### 5. 安全性
+- Firestore 安全规则完善：强制认证、用户数据隔离、Admin 角色控制、数据有效性校验。
+- `firestore.rules` 禁止客户端写入 admin 文档。
+
+### 6. 丰富的可视化
+- 使用 Recharts 实现折线图、柱状图、饼图、热力图等多种图表类型。
+- 仪表盘包含执行摘要、趋势分析、竞品 SOV、平台对比、策略有效性等全方位指标。
+
+### 7. 响应式设计
+- 移动端侧边栏自动切换为滑出式菜单。
+- 卡片网格在 1/2/3 列之间自适应。
+
+---
+
+## 二、严重问题 (Critical Issues)
+
+### 🔴 Bug 1: 策略参数未传递
+**文件**: `src/App.tsx:97`
+```tsx
+onRunTask={() => runTask()}  // <-- 忽略了传入的策略参数
+```
+当用户在 PromptsPage 点击"执行监测"或"全矩阵扫描"，本应传入对应策略的 prompt，但由于 `onRunTask` 忽略参数，实际执行的是 `useFirestoreData` 中的硬编码默认 prompt。**所有策略执行都无效。**
+
+### 🔴 Bug 2: Firestore 模块导出遗漏
+**文件**: `src/lib/firebase.ts:10`
+```typescript
+export { ..., where, setDoc } from "firebase/firestore";
+```
+`where` 和 `setDoc` 在 export 语句中被引用，但 import 语句（第 3 行）并未导入它们。运行时会导致未定义错误。
+
+### 🔴 Bug 3: Dockerfile 生产环境运行开发服务器
+**文件**: `Dockerfile:22`
+```dockerfile
+CMD ["npm", "run", "dev"]
+```
+生产环境运行 Vite 开发服务器（包含 HMR、未压缩代码），而非使用 `dist/` 构建产物。第 16 行的 `npm run build` 构建结果完全没有被使用。
+
+### 🔴 Bug 4: 情感分数基准数据刻度不一致
+**文件**: `src/hooks/useAnalytics.ts`
+- 后测 (post) 情感分数计算：`(sum / total) * 10`
+- 前测 (base) 情感分数：直接取平均
+- 两者刻度不同，导致基准对比图表显示数值异常。
+
+---
+
+## 三、一般问题
+
+### 3.1 硬编码值过多
+- **平台列表** (`useFirestoreData.ts`): 5 个 AI 平台硬编码在 hook 中
+- **默认 prompt** (`useFirestoreData.ts`): `"低功耗应用中最好的 MCU 是什么？"` 硬编码
+- **Propositions & Fingerprints**: 服务端和客户端各有一套默认值，互相重复
+- **campaign_id**: 写死为 `"mcu_campaign_2024"`
+
+### 3.2 用户体验问题
+- **alert() 错误提示** (`FirebaseProvider.tsx`): 所有错误使用浏览器原生弹窗
+- **"上次同步" 永远显示 "刚刚"** (`Header.tsx:34`): 这个时间戳从未更新
+- **Settings 页面** (`SettingsPage.tsx`): 所有控件都是视觉占位，无任何功能
+- **30 天趋势按钮** (`DashboardPage.tsx`): 禁用状态，无法点击
+- **全矩阵扫描无进度反馈** (`PromptsPage.tsx`): 用户不知道扫描进行到哪一步
+
+### 3.3 缺失测试
+整个项目 **没有任何测试文件**。核心业务逻辑 `useAnalytics.ts`（包含 ACS 分数计算、趋势分析、竞品 SOV 等复杂计算）完全未经测试。
+
+### 3.4 数据分页限制
+- Observations 查询硬限制 50 条 (`useFirestoreData.ts:48`)
+- 无分页或无限滚动，超过 50 条的数据对用户不可见
+- Strategies 查询无 limit，可能随使用时间膨胀
+
+### 3.5 潜在僵尸代码
+- `App.tsx:110`: `confirmingDeleteId={null}` 这个 prop 存在但从未连接到实际状态
+- 删除确认弹窗 (`ConfirmDialog`) 没有 loading 状态
+
+### 3.6 外部依赖
+- Google Fonts (Inter + JetBrains Mono) 通过 CDN 加载，存在网络依赖和隐私问题
+- 建议自托管字体文件
+
+### 3.7 TypeScript 类型小问题
+- `evaluator.ts` 和 `types/index.ts` 中 `fingerprint_hits` vs `fingerprint_matches` 命名不一致
+
+---
+
+## 四、可优化方向 (按优先级排序)
+
+### P0 — 立即修复
+1. **修复策略参数传递 Bug** (`App.tsx:97`)
+2. **修复 firebase.ts 导出遗漏**
+3. **修复 Dockerfile 生产部署方式**
+4. **修复情感分数刻度不一致**
+
+### P1 — 重要改进
+5. **添加单元测试**：优先测试 `useAnalytics.ts` 的核心计算逻辑（ACS 分数、趋势、竞品 SOV）
+6. **提取硬编码配置**：将平台列表、默认 propositions、fingerprints 移至配置文件或环境变量
+7. **替换 alert() 为 Toast 通知系统**：推荐使用 `react-hot-toast` 或自建轻量方案
+8. **实现 Settings 页面持久化**：连接到 Firestore 或后端 API
+
+### P2 — 用户体验提升
+9. **实现观察数据分页/无限滚动**：替代当前的硬 50 条限制
+10. **修复"上次同步"时间戳**：连接到最近一次成功任务的时间
+11. **全矩阵扫描添加进度反馈**
+12. **实现 30 天趋势视图** 或移除禁用的按钮
+13. **为 Modal 添加键盘快捷键** (Escape 关闭)
+14. **Key 绑定**：为 PlaybackModal 和 ConfirmDialog 添加 Escape 关闭/Enter 确认
+
+### P3 — 代码质量
+15. **自托管字体**：去除 Google Fonts CDN 依赖
+16. **规范化类型命名**：统一 `fingerprint_hits`/`fingerprint_matches`
+17. **消除僵尸代码**：删除或正确实现 `confirmingDeleteId`
+18. **添加 AbortController 支持**：API 请求超时控制
+19. **验证页面添加搜索/过滤功能**
+20. **热力图平台和意图自动生成**：替代当前硬编码
+
+### P4 — 架构演进
+21. **添加错误监控集成**：Sentry 或类似工具
+22. **CI/CD 接入**：自动化测试 + 构建 + 部署
+23. **国际化支持**：i18n 框架，中英文切换
+24. **夜间模式支持**：随着系统主题自动切换
+25. **数据导出功能**：CSV/PDF 报告导出
+26. **定时自动扫描**：cron 定时触发监测任务
+
+---
+
+## 五、验证方式
+
+所有修复完成后，建议按以下步骤验证：
+
+1. **功能验证**：
+   - 在 PromptsPage 创建一个新策略（自定义 prompt），点击"执行监测"→ 验证发送的 prompt 是策略中的而非默认值
+   - 全矩阵扫描 → 验证每个策略都被正确执行
+   - 在浏览器打开项目 → 确认无控制台错误（特别是 firebase.ts 导出问题）
+
+2. **构建验证**：
+   - `npm run build` → 确认构建成功
+   - `npm run lint` → 确认无类型错误
+   - Docker 构建：`docker build -t geo-monitoring . && docker run geo-monitoring` → 确认在 8080 端口正常服务
+
+3. **数据验证**：
+   - 创建多个观察记录 → 检查仪表盘数据是否正常更新
+   - 检查情感分数基准对比图表数值是否合理

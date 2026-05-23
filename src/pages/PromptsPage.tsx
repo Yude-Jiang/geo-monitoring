@@ -42,6 +42,19 @@ export function PromptsPage({
 
   useEffect(() => { loadCampaigns(); }, []);
 
+  // Close modals on Escape
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsAddingPrompt(false);
+        setIsAddingCampaign(false);
+        setEditingStrategy(null);
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+
   const handleCreateCampaign = async () => {
     if (!newCampaignName.trim()) return;
     await createCampaign(newCampaignName.trim(), newCampaignDesc.trim());

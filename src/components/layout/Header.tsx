@@ -1,4 +1,6 @@
 import { Clock, TrendingUp, Loader2 } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { zhCN } from "date-fns/locale";
 
 const TAB_LABELS: Record<string, string> = {
   dashboard: "仪表盘",
@@ -13,9 +15,10 @@ interface HeaderProps {
   isRunningTask: boolean;
   onRunTask: () => void;
   onSetupAll: () => void;
+  lastSyncAt: Date | null;
 }
 
-export function Header({ activeTab, isRunningTask, onRunTask, onSetupAll }: HeaderProps) {
+export function Header({ activeTab, isRunningTask, onRunTask, onSetupAll, lastSyncAt }: HeaderProps) {
   return (
     <header className="sticky top-0 bg-white/90 backdrop-blur-xl border-b border-gray-200 z-40 px-6 lg:px-10 py-6 flex items-center justify-between shadow-sm">
       <div className="ml-10 lg:ml-0">
@@ -32,7 +35,7 @@ export function Header({ activeTab, isRunningTask, onRunTask, onSetupAll }: Head
       <div className="flex items-center gap-6">
         <div className="hidden sm:flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">
           <Clock size={14} className="text-st-yellow" />
-          上次同步: 刚刚
+          上次同步: {lastSyncAt ? formatDistanceToNow(lastSyncAt, { addSuffix: true, locale: zhCN }) : "从未"}
         </div>
         <button
           onClick={onSetupAll}

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { X, ExternalLink } from "lucide-react";
 import { cn } from "@/src/lib/utils";
 import type { Observation } from "../../types";
@@ -8,6 +9,12 @@ interface PlaybackModalProps {
 }
 
 export function PlaybackModal({ obs, onClose }: PlaybackModalProps) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
   return (
     <div className="fixed inset-0 bg-st-blue/80 backdrop-blur-md z-[200] flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-3xl max-h-[90vh] shadow-2xl flex flex-col border-t-8 border-st-yellow">

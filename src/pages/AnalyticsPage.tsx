@@ -17,22 +17,31 @@ interface AnalyticsPageProps {
 export function AnalyticsPage({ observations }: AnalyticsPageProps) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [selectedCampaign, setSelectedCampaign] = useState<string>("all");
+  const [selectedIntent, setSelectedIntent] = useState<string>("all");
   const [timeRange, setTimeRange] = useState<7 | 30 | 0>(0);
 
   useEffect(() => { fetchCampaigns().then(setCampaigns).catch(() => {}); }, []);
 
-  // Filter observations by campaign + time range
+  // Filter observations by campaign + intent + time range
   const filtered = useMemo(() => {
     let obs = observations;
     if (selectedCampaign !== "all") {
       obs = obs.filter((o) => o.campaign_id === selectedCampaign);
+    }
+    if (selectedIntent !== "all") {
+      obs = obs.filter((o) => o.intent === selectedIntent);
     }
     if (timeRange > 0) {
       const since = new Date(Date.now() - timeRange * 24 * 60 * 60 * 1000).toISOString();
       obs = obs.filter((o) => o.timestamp >= since);
     }
     return obs;
-  }, [observations, selectedCampaign, timeRange]);
+  }, [observations, selectedCampaign, selectedIntent, timeRange]);
+
+  // Derive available intents from (already campaign-filtered) observations
+  const availableIntents = useMemo(() => {
+    return [...new Set(observations.filter((o) => selectedCampaign === "all" || o.campaign_id === selectedCampaign).map((o) => o.intent))].sort();
+  }, [observations, selectedCampaign]);
 
   // Recompute analytics from filtered data
   const analytics = useAnalytics(filtered);
@@ -64,7 +73,7 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
     return [
       { label: "提及率", base: base.mention, post: post.mention },
       { label: "首推率", base: base.topRec, post: post.topRec },
-      { label: "主张", base: base.propHit, post: post.sentiment },
+      { label: "主张", base: base.propHit, post: post.propHit },
       { label: "情感", base: base.sentiment, post: post.sentiment },
     ];
   }, [filtered]);
@@ -88,6 +97,17 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
             <option value="all">全部 Campaign</option>
             {campaigns.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+          {/* Intent selector */}
+          <select
+            value={selectedIntent}
+            onChange={(e) => setSelectedIntent(e.target.value)}
+            className="bg-st-grey border-none text-st-blue font-black text-[10px] uppercase tracking-widest px-4 py-2.5 outline-none"
+          >
+            <option value="all">全部意图</option>
+            {availableIntents.map((i) => (
+              <option key={i} value={i}>{i}</option>
             ))}
           </select>
           {/* Time range */}
@@ -175,7 +195,7 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
                 </div>
               ))
             ) : (
-              <div className="w-full flex items-center justify-center text-gray-300 text-xs italic">数据不足（需至少 14 天数据）</div>
+              <div className="w-full flex items-center justify-center text-gray-300 text-xs italic">数据不足（需覆盖 14 天时间跨度的监测记录）</div>
             )}
           </div>
         </div>
@@ -206,7 +226,7 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
         </div>
 
         <div className="st-card p-6">
-          <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] mb-4">Competitor SOV</h4>
+          <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] mb-4">竞品声量</h4>
           <div className="h-48 w-full">
             {analytics.competitorSovData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
@@ -267,7 +287,7 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={analytics.strategyEffectivenessData} layout="vertical" margin={{ left: 10, right: 20 }}>
                   <XAxis type="number" domain={[0, 100]} hide />
-                  <YAxis dataKey="prompt" type="category" width={100} axisLine={false} tickLine={false}
+                  <YAxis dataKey="prompt" type="category" width={130} axisLine={false} tickLine={false}
                     tick={{ fill: "#00205B", fontSize: 8, fontWeight: "bold" }} />
                   <Tooltip
                     cursor={{ fill: "#f8fafc" }}

@@ -34,6 +34,7 @@ export default function App() {
     strategies,
     isRunningTask,
     setupAllPlatforms,
+    lastSyncAt,
     saveStrategy,
     deleteObservation,
     updateStrategy,
@@ -103,6 +104,7 @@ export default function App() {
           isRunningTask={isRunningTask}
           onRunTask={() => runTask()}
           onSetupAll={setupAllPlatforms}
+          lastSyncAt={lastSyncAt}
         />
 
         <div className="p-4 sm:p-6 lg:p-10">

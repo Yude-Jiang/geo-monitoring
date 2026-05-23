@@ -18,6 +18,7 @@ export function useServerData(user: AppUser | null) {
   const { toast } = useToast();
   const [strategies, setStrategies] = useState<PromptStrategy[]>([]);
   const [isRunningTask, setIsRunningTask] = useState(false);
+  const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
   const lastPollRef = useRef<string | null>(null);
 
   // Initial load when user changes
@@ -26,10 +27,12 @@ export function useServerData(user: AppUser | null) {
     try {
       const [obs, strats] = await Promise.all([fetchObservations(), fetchStrategies()]);
       setObservations(obs);
+      setLastSyncAt(new Date());
       if (obs.length > 0) {
         lastPollRef.current = obs[0].timestamp;
       }
       setStrategies(strats);
+      setLastSyncAt(new Date());
     } catch (err) {
       console.error("Failed to load data:", err);
     }
@@ -200,6 +203,7 @@ export function useServerData(user: AppUser | null) {
     strategies,
     isRunningTask,
     setupAllPlatforms,
+    lastSyncAt,
     saveStrategy,
     deleteObservation,
     updateStrategy: updateStrategyFn,

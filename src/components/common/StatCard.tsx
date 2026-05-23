@@ -35,12 +35,11 @@ export function StatCard({
         <div
           className={cn(
             "flex items-center gap-0.5 text-[10px] font-black px-2 py-1 shadow-sm",
-            trendUp
-              ? "bg-emerald-50 text-emerald-600"
-              : "bg-st-red/10 text-st-red"
+            trend === "—" ? "bg-st-grey text-gray-400" :
+            trendUp ? "bg-emerald-50 text-emerald-600" : "bg-st-red/10 text-st-red"
           )}
         >
-          {trendUp ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+          {trend === "—" ? null : trendUp ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
           {trend}
         </div>
       </div>

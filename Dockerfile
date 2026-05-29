@@ -2,21 +2,35 @@ FROM mcr.microsoft.com/playwright:v1.59.1-jammy
 
 WORKDIR /app
 
-# Ensure tzdata is configured non-interactively
 ENV DEBIAN_FRONTEND=noninteractive
+ENV NODE_ENV=production
 
-# Copy package files and install dependencies
+# ── Build-time args: Vite inlines these into the frontend bundle ──────────────
+ARG VITE_FIREBASE_PROJECT_ID
+ARG VITE_FIREBASE_APP_ID
+ARG VITE_FIREBASE_API_KEY
+ARG VITE_FIREBASE_AUTH_DOMAIN
+ARG VITE_FIREBASE_FIRESTORE_DATABASE_ID
+ARG VITE_FIREBASE_STORAGE_BUCKET
+ARG VITE_FIREBASE_MESSAGING_SENDER_ID
+ARG VITE_FIREBASE_MEASUREMENT_ID
+
+ENV VITE_FIREBASE_PROJECT_ID=$VITE_FIREBASE_PROJECT_ID
+ENV VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID
+ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY
+ENV VITE_FIREBASE_AUTH_DOMAIN=$VITE_FIREBASE_AUTH_DOMAIN
+ENV VITE_FIREBASE_FIRESTORE_DATABASE_ID=$VITE_FIREBASE_FIRESTORE_DATABASE_ID
+ENV VITE_FIREBASE_STORAGE_BUCKET=$VITE_FIREBASE_STORAGE_BUCKET
+ENV VITE_FIREBASE_MESSAGING_SENDER_ID=$VITE_FIREBASE_MESSAGING_SENDER_ID
+ENV VITE_FIREBASE_MEASUREMENT_ID=$VITE_FIREBASE_MEASUREMENT_ID
+
 COPY package.json package-lock.json* ./
 RUN npm install --legacy-peer-deps && npm cache clean --force
 
-# Copy the rest of the application
 COPY . .
 
-# Build the Vite frontend
 RUN npm run build
 
-# Expose port (Cloud Run sets PORT environment variable, usually 8080)
 EXPOSE 8080
 
-# Run the server
 CMD ["npm", "run", "dev"]

@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { AIScraper } from "./server/services/scraper.ts";
 import { evaluateResponse } from "./server/services/evaluator.ts";
@@ -33,6 +34,27 @@ async function startServer() {
   // API Routes
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  // Check which platforms are still logged in (useful after Cloud Run deploy)
+  app.get("/api/login-status", async (_req, res) => {
+    try {
+      const status = await scraper.getLoginStatus();
+      res.json({ status });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // Export current browser session cookies — run locally, then upload result to Cloud Run
+  app.post("/api/export-session", async (_req, res) => {
+    try {
+      const filePath = await scraper.exportSession();
+      const json = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      res.json({ filePath, session: json });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
   });
 
   // Task Execution API — scraping + evaluation all server-side

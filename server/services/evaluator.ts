@@ -1,4 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import { evaluateWithDeepSeek } from "./deepseek-evaluator.ts";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
@@ -16,14 +17,19 @@ export interface EvaluationResult {
   summary: string;
 }
 
-export async function evaluateResponse(prompt: string, responseText: string, expectedPropositions: string[], fingerprints: string[]): Promise<EvaluationResult> {
+async function evaluateWithGemini(
+  prompt: string,
+  responseText: string,
+  expectedPropositions: string[],
+  fingerprints: string[]
+): Promise<EvaluationResult> {
   const systemInstruction = `
-    You are an expert GEO (Generative Engine Optimization) Analyst. 
+    You are an expert GEO (Generative Engine Optimization) Analyst.
     Your task is to analyze an AI's response to a specific prompt and extract structured data for brand attribution analysis.
-    
+
     Target Brand: STMicroelectronics (ST)
     Target Products: STM32, STM32C5, STM32U5, STM32L4, etc.
-    
+
     Analyze the response for:
     1. Mention of the target brand/products.
     2. Whether the target brand is the #1 recommendation or in the top 3.
@@ -40,40 +46,54 @@ export async function evaluateResponse(prompt: string, responseText: string, exp
     AI Response: ${responseText}
     Expected Propositions: ${expectedPropositions.join(", ")}
     Campaign Fingerprints: ${fingerprints.join(", ")}
-    
+
     Return a structured JSON evaluation.
   `;
 
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: userPrompt,
-      config: {
-        systemInstruction,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            mentioned_brand: { type: Type.BOOLEAN },
-            mentioned_product: { type: Type.ARRAY, items: { type: Type.STRING } },
-            top_recommendation: { type: Type.BOOLEAN },
-            top_3_recommendation: { type: Type.BOOLEAN },
-            proposition_hits: { type: Type.ARRAY, items: { type: Type.STRING } },
-            competitor_mentions: { type: Type.ARRAY, items: { type: Type.STRING } },
-            sentiment_score: { type: Type.NUMBER },
-            source_urls: { type: Type.ARRAY, items: { type: Type.STRING } },
-            fingerprint_hits: { type: Type.ARRAY, items: { type: Type.STRING } },
-            rank_position: { type: Type.NUMBER },
-            summary: { type: Type.STRING }
-          },
-          required: ["mentioned_brand", "sentiment_score", "summary", "rank_position"]
-        }
-      }
-    });
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: userPrompt,
+    config: {
+      systemInstruction,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          mentioned_brand: { type: Type.BOOLEAN },
+          mentioned_product: { type: Type.ARRAY, items: { type: Type.STRING } },
+          top_recommendation: { type: Type.BOOLEAN },
+          top_3_recommendation: { type: Type.BOOLEAN },
+          proposition_hits: { type: Type.ARRAY, items: { type: Type.STRING } },
+          competitor_mentions: { type: Type.ARRAY, items: { type: Type.STRING } },
+          sentiment_score: { type: Type.NUMBER },
+          source_urls: { type: Type.ARRAY, items: { type: Type.STRING } },
+          fingerprint_hits: { type: Type.ARRAY, items: { type: Type.STRING } },
+          rank_position: { type: Type.NUMBER },
+          summary: { type: Type.STRING },
+        },
+        required: ["mentioned_brand", "sentiment_score", "summary", "rank_position"],
+      },
+    },
+  });
 
-    return JSON.parse(response.text || "{}") as EvaluationResult;
-  } catch (error) {
-    console.error("Evaluation failed:", error);
-    throw error;
+  const raw = response.text || "";
+  console.log("[Gemini] raw response:", raw);
+
+  if (!raw) throw new Error("Gemini returned empty response");
+  return JSON.parse(raw) as EvaluationResult;
+}
+
+export async function evaluateResponse(
+  prompt: string,
+  responseText: string,
+  expectedPropositions: string[],
+  fingerprints: string[]
+): Promise<EvaluationResult> {
+  const provider = (process.env.LLM_PROVIDER || "gemini").toLowerCase();
+  console.log(`[Evaluator] Using provider: ${provider}`);
+
+  if (provider === "deepseek") {
+    return evaluateWithDeepSeek(prompt, responseText, expectedPropositions, fingerprints);
   }
+  return evaluateWithGemini(prompt, responseText, expectedPropositions, fingerprints);
 }

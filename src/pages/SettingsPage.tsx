@@ -67,7 +67,7 @@ export function SettingsPage() {
                 系统自动轮询 AI 平台的周期设定
               </p>
             </div>
-            <select className="bg-st-grey border-none text-st-blue font-black text-[10px] uppercase tracking-widest px-6 py-2.5 focus:ring-2 focus:ring-st-light-blue outline-none">
+            <select disabled className="bg-st-grey border-none text-st-blue font-black text-[10px] uppercase tracking-widest px-6 py-2.5 outline-none opacity-50 cursor-not-allowed" title="功能开发中，暂不可用">
               <option>每 6 小时</option>
               <option>每天 (24H)</option>
               <option>每周 (7D)</option>
@@ -77,13 +77,14 @@ export function SettingsPage() {
             <div>
               <p className="font-black text-st-blue uppercase tracking-wider">
                 智能预警阈值
+                <span className="ml-2 px-2 py-0.5 bg-st-yellow/10 text-st-yellow text-[8px] font-bold uppercase align-middle">开发中</span>
               </p>
               <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">
                 当品牌可见度跌破 50% 时触发紧急通知
               </p>
             </div>
-            <div className="w-12 h-6 bg-st-blue p-1 relative cursor-pointer shadow-inner">
-              <div className="absolute right-1 top-1 w-4 h-4 bg-white shadow-sm" />
+            <div className="w-12 h-6 bg-st-grey p-1 relative shadow-inner opacity-50 cursor-not-allowed" title="功能开发中，暂不可用">
+              <div className="absolute left-1 top-1 w-4 h-4 bg-white shadow-sm" />
             </div>
           </div>
           <div className="p-8 flex items-center justify-between hover:bg-gray-50/50 transition-colors">
@@ -95,9 +96,9 @@ export function SettingsPage() {
                 历史监测记录在云端的存储时长
               </p>
             </div>
-            <select className="bg-st-grey border-none text-st-blue font-black text-[10px] uppercase tracking-widest px-6 py-2.5 focus:ring-2 focus:ring-st-light-blue outline-none">
+            <select disabled className="bg-st-grey border-none text-st-blue font-black text-[10px] uppercase tracking-widest px-6 py-2.5 outline-none opacity-50 cursor-not-allowed" title="当前为 180 天自动清理。功能开发中，暂不可配置">
+              <option>180 天 (当前)</option>
               <option>90 天</option>
-              <option>180 天</option>
               <option>永久保留</option>
             </select>
           </div>

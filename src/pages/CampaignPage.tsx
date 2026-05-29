@@ -1,20 +1,26 @@
 import { useState, useEffect, useMemo } from "react";
-import { ArrowLeft, ExternalLink } from "lucide-react";
-import { fetchObservationsByCampaign, fetchStrategiesByCampaign, type Campaign } from "../services/api";
+import { ArrowLeft, ExternalLink, Edit3, Trash2, X, Check } from "lucide-react";
+import { fetchObservationsByCampaign, fetchStrategiesByCampaign, updateCampaign, deleteCampaign, type Campaign } from "../services/api";
 import { useAnalytics } from "../hooks/useAnalytics";
-import { StatCard } from "../components/common/StatCard";
 import { PlaybackModal } from "../components/common/PlaybackModal";
+import { useToast } from "../components/common/Toast";
 import type { Observation } from "../types";
 
 interface CampaignPageProps {
   campaign: Campaign;
   onBack: () => void;
+  onUpdated: () => void;
 }
 
-export function CampaignPage({ campaign, onBack }: CampaignPageProps) {
+export function CampaignPage({ campaign, onBack, onUpdated }: CampaignPageProps) {
+  const { toast } = useToast();
   const [observations, setObservations] = useState<Observation[]>([]);
   const [selectedObs, setSelectedObs] = useState<Observation | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(campaign.name);
+  const [editDesc, setEditDesc] = useState(campaign.description);
+  const [editTarget, setEditTarget] = useState(campaign.target_visibility);
 
   useEffect(() => {
     setLoading(true);
@@ -39,26 +45,59 @@ export function CampaignPage({ campaign, onBack }: CampaignPageProps) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <button
-            onClick={onBack}
-            className="p-2 text-gray-400 hover:text-st-blue transition-colors"
-          >
+          <button onClick={onBack} className="p-2 text-gray-400 hover:text-st-blue transition-colors">
             <ArrowLeft size={20} />
           </button>
-          <div>
-            <h2 className="text-xl font-black text-st-blue uppercase tracking-tight">
-              {campaign.name}
-            </h2>
-            {campaign.description && (
-              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">
-                {campaign.description}
-              </p>
-            )}
-          </div>
+          {editing ? (
+            <div className="flex items-center gap-3 flex-wrap">
+              <input value={editName} onChange={(e) => setEditName(e.target.value)}
+                className="px-3 py-1.5 border border-gray-200 text-sm font-black text-st-blue outline-none focus:border-st-light-blue w-40" />
+              <input value={editDesc} onChange={(e) => setEditDesc(e.target.value)} placeholder="描述"
+                className="px-3 py-1.5 border border-gray-200 text-xs text-st-blue outline-none focus:border-st-light-blue w-40" />
+              <select value={editTarget} onChange={(e) => setEditTarget(Number(e.target.value))}
+                className="px-2 py-1.5 border border-gray-200 text-xs font-bold text-st-blue outline-none">
+                <option value={30}>目标 30%</option>
+                <option value={50}>目标 50%</option>
+                <option value={70}>目标 70%</option>
+                <option value={90}>目标 90%</option>
+              </select>
+              <button onClick={async () => {
+                if (!editName.trim()) return;
+                try {
+                  await updateCampaign(campaign.id, editName.trim(), editDesc.trim(), editTarget);
+                  toast("Campaign 已更新", "success");
+                  setEditing(false);
+                  onUpdated();
+                } catch (err: any) { toast(`更新失败: ${err.message}`); }
+              }} className="p-1.5 text-emerald-500 hover:text-emerald-700"><Check size={18} /></button>
+              <button onClick={() => setEditing(false)} className="p-1.5 text-gray-400 hover:text-gray-600"><X size={18} /></button>
+            </div>
+          ) : (
+            <div>
+              <h2 className="text-xl font-black text-st-blue uppercase tracking-tight">{campaign.name}</h2>
+              {campaign.description && (
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">{campaign.description}</p>
+              )}
+            </div>
+          )}
         </div>
-        <span className="text-[10px] font-mono text-gray-400">
-          目标可见度: {campaign.target_visibility}%
-        </span>
+        <div className="flex items-center gap-2">
+          {!editing && (
+            <>
+              <button onClick={() => { setEditName(campaign.name); setEditDesc(campaign.description); setEditTarget(campaign.target_visibility); setEditing(true); }}
+                className="p-1.5 text-gray-300 hover:text-st-light-blue transition-colors" title="编辑"><Edit3 size={16} /></button>
+              <button onClick={async () => {
+                if (!confirm(`确定删除 Campaign "${campaign.name}"？所有关联的监测记录也将被删除。`)) return;
+                try {
+                  await deleteCampaign(campaign.id);
+                  toast("Campaign 已删除", "success");
+                  onBack();
+                } catch (err: any) { toast(`删除失败: ${err.message}`); }
+              }} className="p-1.5 text-gray-300 hover:text-st-red transition-colors" title="删除"><Trash2 size={16} /></button>
+            </>
+          )}
+          <span className="text-[10px] font-mono text-gray-400">目标可见度: {campaign.target_visibility}%</span>
+        </div>
       </div>
 
       {/* Stats bar */}

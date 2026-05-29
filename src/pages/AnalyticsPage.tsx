@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell,
@@ -132,50 +132,64 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
 
       {/* Heatmap + Benchmark */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* Heatmap with sample sizes */}
+        {/* Platform × Intent table */}
         <div className="st-card p-6">
-          <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] mb-4">Platform × Intent 可见度</h4>
+          <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] mb-1">Platform × Intent 可见度</h4>
+          <p className="text-[9px] text-gray-400 mb-4 leading-relaxed">各 AI 平台在不同监测意图下的品牌提及率。帮你发现哪些平台对哪类提问更友好。</p>
           {analytics.heatmapData.intents.length > 0 ? (
-            <div className="grid gap-1" style={{ gridTemplateColumns: `auto repeat(${analytics.heatmapData.intents.length}, 1fr)` }}>
-              <div />
-              {analytics.heatmapData.intents.map((intent) => (
-                <div key={intent} className="text-[8px] font-bold text-gray-400 uppercase text-center">{intent}</div>
-              ))}
-              {analytics.heatmapData.platforms.map((platform) => (
-                <React.Fragment key={platform}>
-                  <div className="text-[8px] font-bold text-st-blue uppercase flex items-center">{platform}</div>
-                  {analytics.heatmapData.intents.map((intent) => {
-                    const val = analytics.heatmapData.getValue(platform, intent);
-                    const n = filtered.filter((o) => o.platform === platform && o.intent === intent).length;
-                    return (
-                      <div
-                        key={intent}
-                        className={cn(
-                          "aspect-square flex flex-col items-center justify-center text-[8px] font-black p-0.5",
-                          n < 5 ? "border border-dashed border-gray-300 bg-gray-50" : "",
-                          val > 70 ? "bg-st-blue text-white" : val > 50 ? "bg-st-blue/60 text-white" :
-                          val > 30 ? "bg-st-blue/30 text-st-blue" : n > 0 ? "bg-st-grey text-gray-400" : "bg-gray-100 text-gray-300"
-                        )}
-                      >
-                        <span>{val}%</span>
-                        <span className={`text-[6px] ${n < 5 ? "text-red-400" : "text-inherit opacity-50"}`}>n={n}</span>
-                      </div>
-                    );
-                  })}
-                </React.Fragment>
-              ))}
-            </div>
+            <table className="w-full text-center text-xs">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="pb-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-wider">平台</th>
+                  {analytics.heatmapData.intents.map((intent) => (
+                    <th key={intent} className="pb-3 text-[10px] font-black text-gray-400 uppercase tracking-wider px-3">{intent}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {analytics.heatmapData.platforms.map((platform) => (
+                  <tr key={platform} className="hover:bg-gray-50/30">
+                    <td className="py-3 text-left">
+                      <span className="text-[10px] font-black text-st-blue uppercase">{platform}</span>
+                    </td>
+                    {analytics.heatmapData.intents.map((intent) => {
+                      const val = analytics.heatmapData.getValue(platform, intent);
+                      const n = filtered.filter((o) => o.platform === platform && o.intent === intent).length;
+                      return (
+                        <td key={intent} className="py-3 px-3">
+                          <div className={cn(
+                            "inline-flex items-center gap-1.5 px-3 py-1.5",
+                            n === 0 ? "text-gray-300" :
+                            n < 5 ? "bg-gray-100 border border-dashed border-gray-300" :
+                            val >= 70 ? "bg-emerald-50 text-emerald-700" :
+                            val >= 50 ? "bg-st-blue/10 text-st-blue" :
+                            val >= 30 ? "bg-st-yellow/10 text-st-yellow" :
+                            "bg-gray-100 text-gray-500"
+                          )}>
+                            <span className="text-sm font-black">{n > 0 ? `${val}%` : "—"}</span>
+                            {n > 0 && <span className={cn("text-[9px] font-medium", n < 5 ? "text-red-400" : "text-gray-400")}>({n})</span>}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           ) : <p className="text-xs text-gray-300 italic p-4">暂无数据</p>}
-          <div className="mt-6 flex items-center gap-4 text-[8px] font-bold text-gray-400">
-            <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 bg-st-blue" /> 高 (&gt;70%)</div>
-            <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 bg-st-blue/30" /> 低 (&lt;30%)</div>
-            <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 border border-dashed border-gray-300 bg-gray-50" /> n&lt;5</div>
+          <div className="mt-4 pt-3 border-t border-gray-100 flex gap-4 text-[9px] font-medium text-gray-400">
+            <span>🟢 ≥70%</span>
+            <span>🔵 50-69%</span>
+            <span>🟡 30-49%</span>
+            <span>⚪ &lt;30%</span>
+            <span className="text-red-400">虚线 = 样本不足</span>
           </div>
         </div>
 
         {/* Benchmark: last 7 days vs previous 7 days */}
         <div className="st-card p-6">
-          <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] mb-4">7天前 vs 最近7天</h4>
+          <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] mb-1">7天前 vs 最近7天</h4>
+          <p className="text-[9px] text-gray-400 mb-4 leading-relaxed">对比前后两周的核心指标变化，衡量 GEO 策略是否在产生正向效果。绿色正值 = 改善，红色负值 = 退步。</p>
           <div className="flex items-center gap-4 mb-4 text-[8px] font-bold">
             <div className="flex items-center gap-1"><div className="w-2.5 h-1 bg-gray-300" /> 7天前</div>
             <div className="flex items-center gap-1"><div className="w-2.5 h-1 bg-st-yellow" /> 最近7天</div>
@@ -204,7 +218,8 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
       {/* Factor Contribution + Competitor SOV */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="xl:col-span-2 st-card p-6">
-          <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] mb-4">归因因子贡献度</h4>
+          <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] mb-1">归因因子贡献度</h4>
+          <p className="text-[9px] text-gray-400 mb-4 leading-relaxed">四因子拆解品牌表现：品牌被提及、被首位推荐、命中预设主张、引用多个不同来源。因子越高，该维度的 GEO 表现越好。</p>
           <div className="h-64 w-full">
             {analytics.factorContributionData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
@@ -226,7 +241,8 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
         </div>
 
         <div className="st-card p-6">
-          <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] mb-4">竞品声量</h4>
+          <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] mb-1">竞品声量</h4>
+          <p className="text-[9px] text-gray-400 mb-4 leading-relaxed">AI 回复中同时提及的竞品品牌占比。饼图越大 = 竞品在对话中被提及越频繁。</p>
           <div className="h-48 w-full">
             {analytics.competitorSovData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
@@ -261,7 +277,8 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
       {/* Platform + Strategy */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div className="st-card p-6">
-          <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] mb-4">AI 平台表现</h4>
+          <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] mb-1">AI 平台表现</h4>
+          <p className="text-[9px] text-gray-400 mb-4 leading-relaxed">各 AI 平台的品牌可见度和情感评分。蓝色进度条 = 可见度百分比，右侧数字 = 情感均值（1-10）。</p>
           <div className="space-y-4">
             {analytics.platformPerformanceData.length > 0 ? (
               analytics.platformPerformanceData.map((plat) => (
@@ -281,7 +298,8 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
         </div>
 
         <div className="st-card p-6">
-          <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] mb-4">策略有效性 Top 5</h4>
+          <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] mb-1">策略有效性 Top 5</h4>
+          <p className="text-[9px] text-gray-400 mb-4 leading-relaxed">按品牌提及率排行的前 5 条 Prompt 策略。找出哪些提问方式最容易触发 AI 推荐你的产品。</p>
           <div className="h-48 w-full">
             {analytics.strategyEffectivenessData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">

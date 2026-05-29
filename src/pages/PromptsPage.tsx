@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { Search, TrendingUp, Plus, Trash2, X, Edit3 } from "lucide-react";
+import { Search, TrendingUp, Plus, Trash2, X, Edit3, Upload } from "lucide-react";
 import type { PromptStrategy } from "../types";
 import { fetchCampaigns, createCampaign, type Campaign } from "../services/api";
+import { useToast } from "../components/common/Toast";
 
 const ALL_PLATFORMS = ["Kimi", "豆包", "DeepSeek", "通义千问", "文心一言", "元宝"];
 
@@ -24,6 +25,7 @@ export function PromptsPage({
   onDeleteStrategy,
   onRequestDelete,
 }: PromptsPageProps) {
+  const { toast } = useToast();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [isAddingPrompt, setIsAddingPrompt] = useState(false);
   const [isAddingCampaign, setIsAddingCampaign] = useState(false);
@@ -35,6 +37,12 @@ export function PromptsPage({
   const [newIntent, setNewIntent] = useState("产品发现");
   const [newFrequency, setNewFrequency] = useState("每天 (24H)");
   const [newPlatforms, setNewPlatforms] = useState<string[]>([...ALL_PLATFORMS]);
+  const [isBatchImport, setIsBatchImport] = useState(false);
+  const [batchText, setBatchText] = useState("");
+  const [batchCampaignId, setBatchCampaignId] = useState("");
+  const [batchIntent, setBatchIntent] = useState("产品发现");
+  const [batchFrequency, setBatchFrequency] = useState("每天 (24H)");
+  const [batchPlatforms, setBatchPlatforms] = useState<string[]>([...ALL_PLATFORMS]);
 
   const loadCampaigns = () => {
     fetchCampaigns().then(setCampaigns).catch(() => {});
@@ -93,21 +101,45 @@ export function PromptsPage({
     setIsAddingPrompt(true);
   };
 
-  const handleUpdate = () => {
+  const handleUpdate = async () => {
     if (!editingStrategy) return;
     const cid = selectedCampaignId || campaigns[0]?.id || "";
-    onUpdateStrategy(editingStrategy.id, {
-      prompt: newPrompt,
-      intent: newIntent,
-      frequency: newFrequency,
-      platforms: newPlatforms,
-      campaign_id: cid,
-    });
-    setIsAddingPrompt(false);
-    setEditingStrategy(null);
-    setNewPrompt("");
-    setNewPlatforms([...ALL_PLATFORMS]);
-    setSelectedCampaignId("");
+    try {
+      await onUpdateStrategy(editingStrategy.id, {
+        prompt: newPrompt,
+        intent: newIntent,
+        frequency: newFrequency,
+        platforms: newPlatforms,
+        campaign_id: cid,
+      });
+      toast("策略已更新", "success");
+      setIsAddingPrompt(false);
+      setEditingStrategy(null);
+      setNewPrompt("");
+      setNewPlatforms([...ALL_PLATFORMS]);
+      setSelectedCampaignId("");
+    } catch (err: any) {
+      toast(`修改失败: ${err.message || "未知错误"}`);
+    }
+  };
+
+  const handleBatchImport = async () => {
+    const cid = batchCampaignId || campaigns[0]?.id;
+    if (!cid) { setIsAddingCampaign(true); return; }
+    const lines = batchText.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+    if (lines.length === 0) { toast("请至少输入一行 Prompt"); return; }
+
+    let imported = 0;
+    for (const line of lines) {
+      try {
+        await onSaveStrategy(cid, line, batchIntent, batchFrequency, batchPlatforms);
+        imported++;
+      } catch {}
+    }
+    toast(`成功导入 ${imported}/${lines.length} 条 Prompt`, "success");
+    setIsBatchImport(false);
+    setBatchText("");
+    setBatchCampaignId("");
   };
 
   const handleFullScan = async () => {
@@ -133,6 +165,13 @@ export function PromptsPage({
           >
             <TrendingUp size={16} />
             全矩阵扫描
+          </button>
+          <button
+            onClick={() => setIsBatchImport(true)}
+            className="st-button-secondary shadow-lg shadow-st-blue/10"
+          >
+            <Upload size={16} />
+            批量导入
           </button>
           <button
             onClick={() => setIsAddingPrompt(true)}
@@ -379,6 +418,77 @@ export function PromptsPage({
                 className="flex-1 st-button-primary justify-center disabled:opacity-50"
               >
                 {editingStrategy ? "保存修改" : "保存策略"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Batch Import Modal */}
+      {isBatchImport && (
+        <div className="fixed inset-0 bg-st-blue/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg shadow-2xl border-t-4 border-st-light-blue">
+            <div className="p-8 border-b border-gray-100 flex items-center justify-between">
+              <h4 className="font-black text-st-blue uppercase tracking-tight">批量导入 Prompt</h4>
+              <button onClick={() => setIsBatchImport(false)} className="text-gray-400 hover:text-st-red transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+            <div className="p-8 space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">所属 Campaign</label>
+                  <select value={batchCampaignId} onChange={(e) => setBatchCampaignId(e.target.value)}
+                    className="w-full bg-st-grey border-none p-3 text-[10px] font-black uppercase tracking-widest text-st-blue outline-none">
+                    <option value="">-- 选择 --</option>
+                    {campaigns.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">监测意图</label>
+                  <select value={batchIntent} onChange={(e) => setBatchIntent(e.target.value)}
+                    className="w-full bg-st-grey border-none p-3 text-[10px] font-black uppercase tracking-widest text-st-blue outline-none">
+                    <option>产品发现</option><option>竞品对比</option><option>技术咨询</option><option>品牌口碑</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">监测频率</label>
+                  <select value={batchFrequency} onChange={(e) => setBatchFrequency(e.target.value)}
+                    className="w-full bg-st-grey border-none p-3 text-[10px] font-black uppercase tracking-widest text-st-blue outline-none">
+                    <option>每天 (24H)</option><option>每 6 小时</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">目标平台</label>
+                  <div className="flex flex-wrap gap-1">
+                    {ALL_PLATFORMS.map((p) => (
+                      <button key={p} type="button"
+                        onClick={() => setBatchPlatforms((prev) => prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p])}
+                        className={`px-2 py-1 text-[9px] font-black uppercase tracking-wider border transition-all ${
+                          batchPlatforms.includes(p) ? "bg-st-blue text-white border-st-blue" : "bg-st-grey text-gray-400 border-gray-200 hover:border-st-light-blue"
+                        }`}>{p}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                  Prompt 列表（每行一条）
+                </label>
+                <textarea value={batchText} onChange={(e) => setBatchText(e.target.value)}
+                  placeholder={"低功耗MCU推荐\n物联网设备MCU选型\nSTM32C5 vs ESP32对比\n..."}
+                  className="w-full h-48 bg-st-grey border-none p-4 text-sm text-st-blue font-medium focus:ring-2 focus:ring-st-light-blue outline-none resize-none" />
+                <p className="text-[9px] text-gray-400">每行一条 Prompt，将使用相同的 Campaign、意图、频率和平台批量创建。</p>
+              </div>
+            </div>
+            <div className="p-8 bg-gray-50 flex gap-4">
+              <button onClick={() => setIsBatchImport(false)}
+                className="flex-1 py-3 border border-gray-200 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:bg-white transition-all">取消</button>
+              <button onClick={handleBatchImport} disabled={!batchText.trim() || batchPlatforms.length === 0}
+                className="flex-1 st-button-primary justify-center disabled:opacity-50">
+                导入 {batchText.trim().split("\n").filter((l) => l.trim()).length || 0} 条
               </button>
             </div>
           </div>

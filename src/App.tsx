@@ -127,6 +127,7 @@ export default function App() {
             <CampaignPage
               campaign={selectedCampaign}
               onBack={() => setSelectedCampaign(null)}
+              onUpdated={() => { /* trigger re-fetch */ }}
             />
           )}
 

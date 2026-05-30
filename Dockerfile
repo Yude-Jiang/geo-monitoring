@@ -25,7 +25,8 @@ ENV VITE_FIREBASE_MESSAGING_SENDER_ID=$VITE_FIREBASE_MESSAGING_SENDER_ID
 ENV VITE_FIREBASE_MEASUREMENT_ID=$VITE_FIREBASE_MEASUREMENT_ID
 
 COPY package.json package-lock.json* ./
-RUN npm install --legacy-peer-deps && npm cache clean --force
+# --include=dev 确保 tsx 等构建/运行时 devDeps 被安装，不受 NODE_ENV=production 影响
+RUN npm install --legacy-peer-deps --include=dev && npm cache clean --force
 
 COPY . .
 

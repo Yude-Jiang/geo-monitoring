@@ -7,9 +7,10 @@
 #   2. npm install --legacy-peer-deps
 #   3. npx playwright install chromium
 #   4. HEADLESS=false npm run dev          # 弹出浏览器, 手动登录各 AI 平台
-#   5. curl -X POST http://localhost:8080/api/export-session \
-#        | python3 -c "import sys,json; json.dump(json.load(sys.stdin)['session'], open('session.json','w'))"
-#   6. 把 session.json 传到 Cloud Shell (用 Cloud Shell 右上角「上传文件」)
+#   5. 导出登录态到 session.json:
+#        curl -X POST http://localhost:8080/api/export-session \
+#          | python3 -c "import sys,json; json.dump(json.load(sys.stdin)['session'], open('session.json','w'))"
+#   6. 把 session.json 传到 Cloud Shell (右上角「上传文件」)
 #
 # 然后在 Cloud Shell 运行:  bash upload-session.sh session.json
 # ─────────────────────────────────────────────────────────────────────────────
@@ -40,7 +41,7 @@ PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(proje
 RUNTIME_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 gcloud secrets add-iam-policy-binding "${SESSION_SECRET}" \
   --member="serviceAccount:${RUNTIME_SA}" \
-  --role="roles/secretmanager.secretAccessor" --quiet || true
+  --role="roles/secretmanager.secretAccessor" --quiet 2>/dev/null || true
 
 echo "▶ 把登录态挂载到 Cloud Run 并启用 storageState 模式..."
 gcloud run services update "${SERVICE}" \

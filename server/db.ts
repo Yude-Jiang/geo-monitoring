@@ -109,6 +109,15 @@ try {
   db.exec(`ALTER TABLE strategies ADD COLUMN IF NOT EXISTS platforms TEXT NOT NULL DEFAULT '[]'`);
 } catch {}
 
+// Migration: per-strategy evaluation criteria (CSV import: pillar / proposition / anchor)
+try { db.exec(`ALTER TABLE strategies ADD COLUMN strategic_pillar TEXT DEFAULT ''`); } catch {}
+try { db.exec(`ALTER TABLE strategies ADD COLUMN propositions TEXT NOT NULL DEFAULT '[]'`); } catch {}
+try { db.exec(`ALTER TABLE strategies ADD COLUMN expected_anchors TEXT NOT NULL DEFAULT '[]'`); } catch {}
+try { db.exec(`ALTER TABLE strategies ADD COLUMN fingerprints TEXT NOT NULL DEFAULT '[]'`); } catch {}
+
+// Migration: group multiple samples of one run together
+try { db.exec(`ALTER TABLE observations ADD COLUMN run_batch_id TEXT DEFAULT ''`); } catch {}
+
 // ─── Prepared statements ────────────────────────────────────────────────────
 
 const stmts = {
@@ -148,10 +157,10 @@ const stmts = {
     "SELECT * FROM strategies WHERE campaign_id = ? ORDER BY created_at DESC"
   ),
   insertStrategy: db.prepare(
-    "INSERT INTO strategies (id, user_id, campaign_id, prompt, intent, frequency, platforms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO strategies (id, user_id, campaign_id, prompt, intent, frequency, platforms, strategic_pillar, propositions, expected_anchors, fingerprints, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ),
   updateStrategy: db.prepare(
-    "UPDATE strategies SET prompt = ?, intent = ?, frequency = ?, platforms = ?, campaign_id = ? WHERE id = ? AND user_id = ?"
+    "UPDATE strategies SET prompt = ?, intent = ?, frequency = ?, platforms = ?, campaign_id = ?, strategic_pillar = ?, propositions = ?, expected_anchors = ?, fingerprints = ? WHERE id = ? AND user_id = ?"
   ),
   deleteStrategy: db.prepare("DELETE FROM strategies WHERE id = ? AND user_id = ?"),
   updateStrategyCampaign: db.prepare(
@@ -176,12 +185,12 @@ const stmts = {
       id, user_id, timestamp, platform, intent, intent_id, campaign_id,
       session_type, prompt_text, mentioned, top_rec, top_3_rec, sentiment,
       rank_position, proposition_hits, fingerprint_matches, source_urls,
-      competitor_mentions, status, is_mock, screenshot_path, raw_response
+      competitor_mentions, status, is_mock, screenshot_path, raw_response, run_batch_id
     ) VALUES (
       ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
-      ?, ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?
     )`
   ),
   deleteObservation: db.prepare(
@@ -232,6 +241,7 @@ function rowToObservation(row: Record<string, unknown>): Observation {
     is_mock: Boolean(row.is_mock),
     screenshot_url: row.screenshot_path as string | undefined,
     raw_response: row.raw_response as string | undefined,
+    run_batch_id: (row.run_batch_id as string) || undefined,
   };
 }
 
@@ -273,7 +283,8 @@ export function addObservation(data: Record<string, unknown>): string {
     data.status || "success",
     data.is_mock ? 1 : 0,
     data.screenshot_path || "",
-    data.raw_response || ""
+    data.raw_response || "",
+    data.run_batch_id || ""
   );
   return id;
 }
@@ -386,6 +397,10 @@ function strategyRow(r: Record<string, unknown>): PromptStrategy {
     frequency: r.frequency as string,
     platforms: r.platforms ? JSON.parse(r.platforms as string) : [],
     campaign_id: (r.campaign_id as string) || undefined,
+    strategic_pillar: (r.strategic_pillar as string) || undefined,
+    propositions: r.propositions ? JSON.parse(r.propositions as string) : [],
+    expected_anchors: r.expected_anchors ? JSON.parse(r.expected_anchors as string) : [],
+    fingerprints: r.fingerprints ? JSON.parse(r.fingerprints as string) : [],
     createdAt: r.created_at as string,
   };
 }
@@ -396,12 +411,23 @@ export function addStrategy(
   prompt: string,
   intent: string,
   frequency: string,
-  platforms: string[]
+  platforms: string[],
+  strategicPillar = "",
+  propositions: string[] = [],
+  expectedAnchors: string[] = [],
+  fingerprints: string[] = []
 ): PromptStrategy {
   const id = uuid();
   const createdAt = new Date().toISOString();
-  stmts.insertStrategy.run(id, userId, campaignId, prompt, intent, frequency, JSON.stringify(platforms), createdAt);
-  return { id, campaign_id: campaignId, prompt, intent, frequency, platforms, createdAt };
+  stmts.insertStrategy.run(
+    id, userId, campaignId, prompt, intent, frequency, JSON.stringify(platforms),
+    strategicPillar, JSON.stringify(propositions), JSON.stringify(expectedAnchors), JSON.stringify(fingerprints),
+    createdAt
+  );
+  return {
+    id, campaign_id: campaignId, prompt, intent, frequency, platforms,
+    strategic_pillar: strategicPillar, propositions, expected_anchors: expectedAnchors, fingerprints, createdAt,
+  };
 }
 
 export function updateStrategy(
@@ -411,9 +437,17 @@ export function updateStrategy(
   intent: string,
   frequency: string,
   platforms: string[],
-  campaignId: string
+  campaignId: string,
+  strategicPillar = "",
+  propositions: string[] = [],
+  expectedAnchors: string[] = [],
+  fingerprints: string[] = []
 ): boolean {
-  const result = stmts.updateStrategy.run(prompt, intent, frequency, JSON.stringify(platforms), campaignId, id, userId);
+  const result = stmts.updateStrategy.run(
+    prompt, intent, frequency, JSON.stringify(platforms), campaignId,
+    strategicPillar, JSON.stringify(propositions), JSON.stringify(expectedAnchors), JSON.stringify(fingerprints),
+    id, userId
+  );
   return result.changes > 0;
 }
 

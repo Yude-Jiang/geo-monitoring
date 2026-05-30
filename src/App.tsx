@@ -36,6 +36,7 @@ export default function App() {
     setupAllPlatforms,
     lastSyncAt,
     saveStrategy,
+    importCSV,
     deleteObservation,
     updateStrategy,
     deleteStrategy,
@@ -153,6 +154,7 @@ export default function App() {
               onUpdateStrategy={updateStrategy}
               onDeleteStrategy={deleteStrategy}
               onRequestDelete={handleRequestDeleteStrategy}
+              onImportCSV={importCSV}
             />
           )}
 

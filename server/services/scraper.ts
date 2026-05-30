@@ -1,6 +1,7 @@
 import { chromium, BrowserContext, Page, Browser } from "playwright";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -163,7 +164,9 @@ const PLATFORM_CONFIGS: Record<string, PlatformConfig> = {
 
 export class AIScraper {
   private context: BrowserContext | null = null;
+  private browser: Browser | null = null;
   private readonly profileDir: string;
+  private readonly storageStatePath: string | null;
   private readonly headless: boolean;
   private readonly slowMo: number;
 
@@ -175,6 +178,8 @@ export class AIScraper {
       "..",
       process.env.CHROME_DATA_DIR || ".chrome-data"
     );
+    // Cloud Run: point STORAGE_STATE_PATH at a mounted secret file with exported cookies
+    this.storageStatePath = process.env.STORAGE_STATE_PATH || null;
     this.headless = process.env.HEADLESS !== "false"; // Default to true in Cloud Run if not explicitly false
     this.slowMo = this.headless ? 0 : 80; // Human-like typing speed when visible
   }
@@ -184,34 +189,52 @@ export class AIScraper {
   async init(): Promise<void> {
     if (this.context) return;
 
-    // Ensure profile directory exists
-    if (!fs.existsSync(this.profileDir)) {
-      fs.mkdirSync(this.profileDir, { recursive: true });
-      console.log(
-        `[Scraper] Created Chrome profile at: ${this.profileDir}`
-      );
-      console.log(
-        `[Scraper] NOTE: First run will open a visible Chrome window.`,
-        `Please log into each AI platform manually.`
-      );
-    }
+    const commonArgs = [
+      "--disable-blink-features=AutomationControlled",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-dev-shm-usage",
+    ];
+    const userAgent =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+      "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-    this.context = await chromium.launchPersistentContext(this.profileDir, {
-      ...(process.env.K_SERVICE ? {} : { channel: "chrome" }), // Use bundled chromium in Cloud Run, user's chrome locally
-      headless: this.headless,
-      slowMo: this.slowMo,
-      viewport: { width: 1280, height: 800 },
-      userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      args: [
-        "--disable-blink-features=AutomationControlled",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--disable-dev-shm-usage",
-      ],
-      ignoreDefaultArgs: ["--enable-automation"],
-    });
+    if (this.storageStatePath && fs.existsSync(this.storageStatePath)) {
+      // Cloud Run mode: stateless browser seeded with exported cookies/localStorage
+      this.browser = await chromium.launch({
+        headless: this.headless,
+        slowMo: this.slowMo,
+        args: commonArgs,
+      });
+      this.context = await this.browser.newContext({
+        storageState: this.storageStatePath,
+        viewport: { width: 1280, height: 800 },
+        userAgent,
+      });
+      console.log(
+        `[Scraper] Loaded session from storageState: ${this.storageStatePath}`
+      );
+    } else {
+      // Local dev mode: persistent Chrome profile (survives restarts on disk)
+      if (!fs.existsSync(this.profileDir)) {
+        fs.mkdirSync(this.profileDir, { recursive: true });
+        console.log(`[Scraper] Created Chrome profile at: ${this.profileDir}`);
+        console.log(
+          `[Scraper] NOTE: First run will open a visible Chrome window.`,
+          `Please log into each AI platform manually.`
+        );
+      }
+
+      this.context = await chromium.launchPersistentContext(this.profileDir, {
+        ...(process.env.K_SERVICE ? {} : { channel: "chrome" }), // Use bundled chromium in Cloud Run, user's chrome locally
+        headless: this.headless,
+        slowMo: this.slowMo,
+        viewport: { width: 1280, height: 800 },
+        userAgent,
+        args: commonArgs,
+        ignoreDefaultArgs: ["--enable-automation"],
+      });
+    }
 
     console.log(
       `[Scraper] Browser context initialized (headless=${this.headless})`
@@ -223,6 +246,44 @@ export class AIScraper {
       await this.context.close();
       this.context = null;
     }
+    if (this.browser) {
+      await this.browser.close();
+      this.browser = null;
+    }
+  }
+
+  // ── Session export & login status (for Cloud Run storageState workflow) ────
+
+  /** Export current cookies/localStorage to a JSON file. Run locally after manual login. */
+  async exportSession(outputPath?: string): Promise<string> {
+    await this.init();
+    const dest =
+      outputPath || path.join(os.tmpdir(), "geo-monitoring-session.json");
+    await this.context!.storageState({ path: dest });
+    console.log(`[Scraper] Session exported to: ${dest}`);
+    return dest;
+  }
+
+  /** Check which platforms are currently logged in. One page open per platform. */
+  async getLoginStatus(): Promise<Record<string, boolean>> {
+    await this.init();
+    const results: Record<string, boolean> = {};
+    for (const [name, config] of Object.entries(PLATFORM_CONFIGS)) {
+      const page = await this.context!.newPage();
+      try {
+        await page.goto(config.url, {
+          waitUntil: "domcontentloaded",
+          timeout: 20_000,
+        });
+        await page.waitForTimeout(2000);
+        results[name] = await this.checkLoginStatus(page, config);
+      } catch {
+        results[name] = false;
+      } finally {
+        await page.close();
+      }
+    }
+    return results;
   }
 
   // ── Main scrape entry point ───────────────────────────────────────────────

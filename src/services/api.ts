@@ -100,17 +100,21 @@ export async function createStrategy(
   prompt: string,
   intent: string,
   frequency: string,
-  platforms: string[]
+  platforms: string[],
+  extra?: { strategic_pillar?: string; propositions?: string[]; expected_anchors?: string[]; fingerprints?: string[] }
 ): Promise<PromptStrategy> {
   return request<PromptStrategy>("/api/strategies", {
     method: "POST",
-    body: JSON.stringify({ campaign_id: campaignId, prompt, intent, frequency, platforms }),
+    body: JSON.stringify({ campaign_id: campaignId, prompt, intent, frequency, platforms, ...extra }),
   });
 }
 
 export async function updateStrat(
   id: string,
-  data: { prompt: string; intent: string; frequency: string; platforms: string[]; campaign_id: string }
+  data: {
+    prompt: string; intent: string; frequency: string; platforms: string[]; campaign_id: string;
+    strategic_pillar?: string; propositions?: string[]; expected_anchors?: string[]; fingerprints?: string[];
+  }
 ): Promise<void> {
   await request(`/api/strategies/${id}`, {
     method: "PUT",
@@ -120,6 +124,27 @@ export async function updateStrat(
 
 export async function deleteStrat(id: string): Promise<void> {
   await request(`/api/strategies/${id}`, { method: "DELETE" });
+}
+
+// ─── CSV bulk import ──────────────────────────────────────────────────────
+
+export interface CsvImportRow {
+  strategic_pillar: string;
+  core_proposition: string;
+  monitoring_prompt: string;
+  expected_anchor: string;
+}
+
+export async function importStrategiesFromCSV(payload: {
+  rows: CsvImportRow[];
+  campaign_id: string;
+  frequency: string;
+  platforms: string[];
+}): Promise<{ imported: number; strategies: PromptStrategy[] }> {
+  return request("/api/strategies/import-csv", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 // ─── Task Logs ──────────────────────────────────────────────────────────
@@ -150,6 +175,7 @@ export interface RunTaskParams {
   intentId: string;
   campaignId: string;
   campaign_id: string;  // UUID of the campaign
+  runBatchId?: string;  // groups the N samples of one run
 }
 
 export interface RunTaskResponse {

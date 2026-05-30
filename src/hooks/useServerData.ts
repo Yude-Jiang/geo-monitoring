@@ -10,6 +10,8 @@ import {
   updateStrat,
   deleteStrat,
   runTaskOnServer,
+  importStrategiesFromCSV,
+  type CsvImportRow,
 } from "../services/api";
 import { useToast } from "../components/common/Toast";
 
@@ -71,10 +73,24 @@ export function useServerData(user: AppUser | null) {
 
   // Save strategy
   const saveStrategy = useCallback(
-    async (campaignId: string, prompt: string, intent: string, frequency: string, platforms: string[]) => {
+    async (
+      campaignId: string, prompt: string, intent: string, frequency: string, platforms: string[],
+      extra?: { strategic_pillar?: string; propositions?: string[]; expected_anchors?: string[]; fingerprints?: string[] }
+    ) => {
       if (!user) return;
-      const strategy = await createStrategy(campaignId, prompt, intent, frequency, platforms);
+      const strategy = await createStrategy(campaignId, prompt, intent, frequency, platforms, extra);
       setStrategies((prev) => [strategy, ...prev]);
+    },
+    [user]
+  );
+
+  // Bulk import strategies from CSV (server auto-classifies intent + extracts fingerprints)
+  const importCSV = useCallback(
+    async (rows: CsvImportRow[], campaignId: string, frequency: string, platforms: string[]) => {
+      if (!user) return 0;
+      const { imported, strategies } = await importStrategiesFromCSV({ rows, campaign_id: campaignId, frequency, platforms });
+      setStrategies((prev) => [...strategies, ...prev]);
+      return imported;
     },
     [user]
   );
@@ -119,35 +135,46 @@ export function useServerData(user: AppUser | null) {
         const intent = strategy?.intent ?? "产品发现";
         const campaignId = strategy?.campaign_id || "default_campaign";
 
-        const propositions = [
+        // Per-strategy evaluation criteria, falling back to global defaults
+        const DEFAULT_PROPOSITIONS = [
           "Industry leading power efficiency",
           "Comprehensive ecosystem",
           "Advanced security features",
         ];
-        const fingerprints = ["STM32C5", "U5 series", "Cortex-M0+"];
+        const DEFAULT_FINGERPRINTS = ["STM32C5", "U5 series", "Cortex-M0+"];
+        const propositions = strategy?.propositions?.length ? strategy.propositions : DEFAULT_PROPOSITIONS;
+        const fingerprints = strategy?.fingerprints?.length ? strategy.fingerprints : DEFAULT_FINGERPRINTS;
+
+        // Sample each platform N times to measure mention probability, not a single snapshot
+        const SAMPLES = 3;
 
         for (let i = 0; i < platforms.length; i++) {
-          toast(`正在执行 ${platforms[i]} (${i + 1}/${platforms.length})...`);
-          try {
-            await runTaskOnServer({
-              platform: platforms[i],
-              prompt,
-              propositions,
-              fingerprints,
-              intent,
-              intentId: strategy?.id || "product_discovery",
-              campaignId: "default_campaign",
-              campaign_id: campaignId,
-            });
-          } catch (err: any) {
-            toast(`${platforms[i]} 失败: ${err.message || "未知错误"}`);
+          // One batch id per platform groups its N samples together
+          const runBatchId = `${Date.now()}-${platforms[i]}-${Math.random().toString(36).slice(2, 8)}`;
+          for (let s = 0; s < SAMPLES; s++) {
+            toast(`正在执行 ${platforms[i]} (${i + 1}/${platforms.length}) · 采样 ${s + 1}/${SAMPLES}...`);
+            try {
+              await runTaskOnServer({
+                platform: platforms[i],
+                prompt,
+                propositions,
+                fingerprints,
+                intent,
+                intentId: strategy?.id || "product_discovery",
+                campaignId: "default_campaign",
+                campaign_id: campaignId,
+                runBatchId,
+              });
+            } catch (err: any) {
+              toast(`${platforms[i]} 采样 ${s + 1} 失败: ${err.message || "未知错误"}`);
+            }
           }
-          // Refresh after each platform
+          // Refresh after each platform finishes its samples
           const obs = await fetchObservations();
           setObservations(obs);
           if (obs.length > 0) lastPollRef.current = obs[0].timestamp;
         }
-        toast(`全部 ${platforms.length} 个平台执行完毕`, "success");
+        toast(`全部 ${platforms.length} 个平台执行完毕（每平台 ${SAMPLES} 次采样）`, "success");
       } catch (error) {
         const msg = error instanceof Error ? error.message : "未知错误";
         console.error("任务执行失败:", msg);
@@ -205,6 +232,7 @@ export function useServerData(user: AppUser | null) {
     setupAllPlatforms,
     lastSyncAt,
     saveStrategy,
+    importCSV,
     deleteObservation,
     updateStrategy: updateStrategyFn,
     deleteStrategy: deleteStrategyFn,

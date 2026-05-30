@@ -21,6 +21,7 @@ export interface Observation {
   screenshot_url?: string;
   raw_response?: string;
   is_mock?: boolean;
+  run_batch_id?: string;  // groups the N samples of one run
 }
 
 export interface PromptStrategy {
@@ -30,6 +31,10 @@ export interface PromptStrategy {
   intent: string;
   frequency: string;
   platforms: string[];  // selected AI platforms to monitor
+  strategic_pillar?: string;     // CSV: Strategic Pillar (aggregation dimension)
+  propositions?: string[];       // CSV: Core Proposition (semantic eval)
+  expected_anchors?: string[];   // CSV: Expected AI Anchor (kept verbatim)
+  fingerprints?: string[];       // atomic keywords extracted from anchors
   createdAt: string;
 }
 

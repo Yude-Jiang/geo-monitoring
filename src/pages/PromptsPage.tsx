@@ -1,19 +1,24 @@
-import { useState, useEffect } from "react";
-import { Search, TrendingUp, Plus, Trash2, X, Edit3, Upload } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Search, TrendingUp, Plus, Trash2, X, Edit3, Upload, FileText } from "lucide-react";
 import type { PromptStrategy } from "../types";
-import { fetchCampaigns, createCampaign, type Campaign } from "../services/api";
+import { fetchCampaigns, createCampaign, type Campaign, type CsvImportRow } from "../services/api";
 import { useToast } from "../components/common/Toast";
 
 const ALL_PLATFORMS = ["Kimi", "豆包", "DeepSeek", "通义千问", "文心一言", "元宝"];
+const INTENT_OPTIONS = ["产品发现", "竞品对比", "技术咨询", "品牌口碑", "成本优化", "选型迁移", "方案设计", "生态工具"];
 
 interface PromptsPageProps {
   strategies: PromptStrategy[];
   isRunningTask: boolean;
   onRunTask: (strategy?: PromptStrategy) => void;
   onSaveStrategy: (campaignId: string, prompt: string, intent: string, frequency: string, platforms: string[]) => void;
-  onUpdateStrategy: (id: string, data: { prompt: string; intent: string; frequency: string; platforms: string[]; campaign_id: string }) => void;
+  onUpdateStrategy: (id: string, data: {
+    prompt: string; intent: string; frequency: string; platforms: string[]; campaign_id: string;
+    strategic_pillar?: string; propositions?: string[]; expected_anchors?: string[]; fingerprints?: string[];
+  }) => void;
   onDeleteStrategy: (id: string) => void;
   onRequestDelete: (id: string) => void;
+  onImportCSV: (rows: CsvImportRow[], campaignId: string, frequency: string, platforms: string[]) => Promise<number | undefined>;
 }
 
 export function PromptsPage({
@@ -24,6 +29,7 @@ export function PromptsPage({
   onUpdateStrategy,
   onDeleteStrategy,
   onRequestDelete,
+  onImportCSV,
 }: PromptsPageProps) {
   const { toast } = useToast();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -43,6 +49,11 @@ export function PromptsPage({
   const [batchIntent, setBatchIntent] = useState("产品发现");
   const [batchFrequency, setBatchFrequency] = useState("每天 (24H)");
   const [batchPlatforms, setBatchPlatforms] = useState<string[]>([...ALL_PLATFORMS]);
+  const [csvRows, setCsvRows] = useState<CsvImportRow[]>([]);
+  const [csvFileName, setCsvFileName] = useState("");
+  const [batchNewCampaign, setBatchNewCampaign] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadCampaigns = () => {
     fetchCampaigns().then(setCampaigns).catch(() => {});
@@ -111,6 +122,11 @@ export function PromptsPage({
         frequency: newFrequency,
         platforms: newPlatforms,
         campaign_id: cid,
+        // Preserve CSV-derived evaluation criteria so editing doesn't wipe them
+        strategic_pillar: editingStrategy.strategic_pillar,
+        propositions: editingStrategy.propositions,
+        expected_anchors: editingStrategy.expected_anchors,
+        fingerprints: editingStrategy.fingerprints,
       });
       toast("策略已更新", "success");
       setIsAddingPrompt(false);
@@ -123,23 +139,95 @@ export function PromptsPage({
     }
   };
 
-  const handleBatchImport = async () => {
-    const cid = batchCampaignId || campaigns[0]?.id;
-    if (!cid) { setIsAddingCampaign(true); return; }
-    const lines = batchText.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
-    if (lines.length === 0) { toast("请至少输入一行 Prompt"); return; }
-
-    let imported = 0;
-    for (const line of lines) {
-      try {
-        await onSaveStrategy(cid, line, batchIntent, batchFrequency, batchPlatforms);
-        imported++;
-      } catch {}
+  // Minimal CSV parser supporting quoted fields with embedded commas/newlines
+  const parseCSV = (text: string): string[][] => {
+    const rows: string[][] = [];
+    let row: string[] = [];
+    let field = "";
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (text[i + 1] === '"') { field += '"'; i++; }
+          else inQuotes = false;
+        } else field += c;
+      } else if (c === '"') inQuotes = true;
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\n" || c === "\r") {
+        if (c === "\r" && text[i + 1] === "\n") i++;
+        row.push(field); field = "";
+        if (row.some((f) => f.trim() !== "")) rows.push(row);
+        row = [];
+      } else field += c;
     }
-    toast(`成功导入 ${imported}/${lines.length} 条 Prompt`, "success");
-    setIsBatchImport(false);
-    setBatchText("");
-    setBatchCampaignId("");
+    if (field !== "" || row.length > 0) {
+      row.push(field);
+      if (row.some((f) => f.trim() !== "")) rows.push(row);
+    }
+    return rows;
+  };
+
+  const handleCsvFile = async (file: File) => {
+    const text = await file.text();
+    const parsed = parseCSV(text);
+    if (parsed.length < 2) { toast("CSV 内容为空或缺少数据行"); return; }
+    // Skip the header row; map first 4 columns
+    const rows: CsvImportRow[] = parsed.slice(1).map((cols) => ({
+      strategic_pillar: (cols[0] || "").trim(),
+      core_proposition: (cols[1] || "").trim(),
+      monitoring_prompt: (cols[2] || "").trim(),
+      expected_anchor: (cols[3] || "").trim(),
+    })).filter((r) => r.monitoring_prompt.length > 0);
+    if (rows.length === 0) { toast("没有解析到有效的 Monitoring Prompt 列"); return; }
+    setCsvRows(rows);
+    setCsvFileName(file.name);
+    toast(`已解析 ${rows.length} 行，确认后导入`, "success");
+  };
+
+  // Resolve the target campaign: existing selection, or create a new one inline
+  const resolveBatchCampaign = async (): Promise<string | null> => {
+    if (batchNewCampaign.trim()) {
+      const c = await createCampaign(batchNewCampaign.trim(), "");
+      await loadCampaigns();
+      setBatchCampaignId(c.id);
+      setBatchNewCampaign("");
+      return c.id;
+    }
+    return batchCampaignId || campaigns[0]?.id || null;
+  };
+
+  const handleBatchImport = async () => {
+    if (batchPlatforms.length === 0) { toast("请至少选择一个平台"); return; }
+    setIsImporting(true);
+    try {
+      const cid = await resolveBatchCampaign();
+      if (!cid) { toast("请选择或新建一个 Campaign"); return; }
+
+      if (csvRows.length > 0) {
+        // CSV path: server auto-classifies intent + extracts fingerprints
+        const imported = await onImportCSV(csvRows, cid, batchFrequency, batchPlatforms);
+        toast(`成功导入 ${imported ?? csvRows.length} 条策略（含命题/锚点）`, "success");
+      } else {
+        // Plain-text path: one prompt per line, shared intent
+        const lines = batchText.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+        if (lines.length === 0) { toast("请上传 CSV 或输入至少一行 Prompt"); return; }
+        let imported = 0;
+        for (const line of lines) {
+          try { await onSaveStrategy(cid, line, batchIntent, batchFrequency, batchPlatforms); imported++; } catch {}
+        }
+        toast(`成功导入 ${imported}/${lines.length} 条 Prompt`, "success");
+      }
+      setIsBatchImport(false);
+      setBatchText("");
+      setBatchCampaignId("");
+      setCsvRows([]);
+      setCsvFileName("");
+    } catch (err: any) {
+      toast(`导入失败: ${err.message || "未知错误"}`);
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   const handleFullScan = async () => {
@@ -211,6 +299,11 @@ export function PromptsPage({
                     <span className="px-2 py-0.5 bg-st-blue text-white text-[8px] font-black uppercase tracking-widest">
                       {strategy.intent}
                     </span>
+                    {strategy.strategic_pillar && (
+                      <span className="px-2 py-0.5 bg-st-yellow text-st-blue text-[8px] font-black uppercase tracking-widest" title={strategy.strategic_pillar}>
+                        {strategy.strategic_pillar.length > 14 ? strategy.strategic_pillar.slice(0, 14) + "…" : strategy.strategic_pillar}
+                      </span>
+                    )}
                     <span className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">
                       {strategy.frequency}
                     </span>
@@ -223,6 +316,19 @@ export function PromptsPage({
                   <h4 className="font-black text-st-blue tracking-tight truncate">
                     {strategy.prompt}
                   </h4>
+                  {strategy.propositions?.[0] && (
+                    <p className="text-[10px] text-gray-500 font-medium truncate mt-1" title={strategy.propositions[0]}>
+                      <span className="font-black text-gray-400">核心主张：</span>{strategy.propositions[0]}
+                    </p>
+                  )}
+                  {strategy.expected_anchors?.[0] && (
+                    <p className="text-[10px] text-gray-500 font-medium truncate" title={strategy.expected_anchors[0]}>
+                      <span className="font-black text-gray-400">期望锚点：</span>{strategy.expected_anchors[0]}
+                      {strategy.fingerprints && strategy.fingerprints.length > 0 && (
+                        <span className="ml-1 text-st-light-blue">[{strategy.fingerprints.join(", ")}]</span>
+                      )}
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-4 flex-shrink-0">
@@ -362,10 +468,7 @@ export function PromptsPage({
                     onChange={(e) => setNewIntent(e.target.value)}
                     className="w-full bg-st-grey border-none p-3 text-[10px] font-black uppercase tracking-widest text-st-blue outline-none"
                   >
-                    <option>产品发现</option>
-                    <option>竞品对比</option>
-                    <option>技术咨询</option>
-                    <option>品牌口碑</option>
+                    {INTENT_OPTIONS.map((o) => (<option key={o}>{o}</option>))}
                   </select>
                 </div>
                 <div className="space-y-2">
@@ -434,21 +537,26 @@ export function PromptsPage({
                 <X size={24} />
               </button>
             </div>
-            <div className="p-8 space-y-6">
+            <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">所属 Campaign</label>
-                  <select value={batchCampaignId} onChange={(e) => setBatchCampaignId(e.target.value)}
+                  <select value={batchCampaignId} onChange={(e) => { setBatchCampaignId(e.target.value); setBatchNewCampaign(""); }}
                     className="w-full bg-st-grey border-none p-3 text-[10px] font-black uppercase tracking-widest text-st-blue outline-none">
                     <option value="">-- 选择 --</option>
                     {campaigns.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
                   </select>
+                  <input value={batchNewCampaign} onChange={(e) => setBatchNewCampaign(e.target.value)}
+                    placeholder="+ 或新建 Campaign"
+                    className="w-full bg-white border border-dashed border-gray-300 p-2 text-[10px] font-bold text-st-blue outline-none focus:border-st-light-blue" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">监测意图</label>
-                  <select value={batchIntent} onChange={(e) => setBatchIntent(e.target.value)}
-                    className="w-full bg-st-grey border-none p-3 text-[10px] font-black uppercase tracking-widest text-st-blue outline-none">
-                    <option>产品发现</option><option>竞品对比</option><option>技术咨询</option><option>品牌口碑</option>
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                    监测意图 {csvRows.length > 0 && <span className="text-st-light-blue">（CSV 自动判断）</span>}
+                  </label>
+                  <select value={batchIntent} onChange={(e) => setBatchIntent(e.target.value)} disabled={csvRows.length > 0}
+                    className="w-full bg-st-grey border-none p-3 text-[10px] font-black uppercase tracking-widest text-st-blue outline-none disabled:opacity-40">
+                    {INTENT_OPTIONS.map((o) => (<option key={o}>{o}</option>))}
                   </select>
                 </div>
               </div>
@@ -473,22 +581,49 @@ export function PromptsPage({
                   </div>
                 </div>
               </div>
+
+              {/* CSV upload */}
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                  Prompt 列表（每行一条）
-                </label>
-                <textarea value={batchText} onChange={(e) => setBatchText(e.target.value)}
-                  placeholder={"低功耗MCU推荐\n物联网设备MCU选型\nSTM32C5 vs ESP32对比\n..."}
-                  className="w-full h-48 bg-st-grey border-none p-4 text-sm text-st-blue font-medium focus:ring-2 focus:ring-st-light-blue outline-none resize-none" />
-                <p className="text-[9px] text-gray-400">每行一条 Prompt，将使用相同的 Campaign、意图、频率和平台批量创建。</p>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">CSV 文件导入（推荐）</label>
+                <input ref={fileInputRef} type="file" accept=".csv" className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleCsvFile(f); e.target.value = ""; }} />
+                <button type="button" onClick={() => fileInputRef.current?.click()}
+                  className="w-full flex items-center justify-center gap-2 p-3 border-2 border-dashed border-gray-300 text-[10px] font-black text-st-blue uppercase tracking-widest hover:border-st-light-blue transition-all">
+                  <FileText size={16} />
+                  {csvFileName ? `已选: ${csvFileName}` : "上传 CSV（列：Strategic Pillar / Core Proposition / Monitoring Prompt / Expected AI Anchor）"}
+                </button>
+                {csvRows.length > 0 && (
+                  <div className="bg-st-grey/50 p-3 max-h-32 overflow-y-auto space-y-1">
+                    <p className="text-[10px] font-black text-st-blue">已解析 {csvRows.length} 行，意图与指纹将由系统自动判断：</p>
+                    {csvRows.slice(0, 5).map((r, i) => (
+                      <p key={i} className="text-[9px] text-gray-500 truncate">· {r.monitoring_prompt}</p>
+                    ))}
+                    {csvRows.length > 5 && <p className="text-[9px] text-gray-400">…还有 {csvRows.length - 5} 行</p>}
+                    <button onClick={() => { setCsvRows([]); setCsvFileName(""); }}
+                      className="text-[9px] font-bold text-st-red hover:underline">清除</button>
+                  </div>
+                )}
               </div>
+
+              {csvRows.length === 0 && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                    或粘贴 Prompt 列表（每行一条）
+                  </label>
+                  <textarea value={batchText} onChange={(e) => setBatchText(e.target.value)}
+                    placeholder={"低功耗MCU推荐\n物联网设备MCU选型\nSTM32C5 vs ESP32对比\n..."}
+                    className="w-full h-32 bg-st-grey border-none p-4 text-sm text-st-blue font-medium focus:ring-2 focus:ring-st-light-blue outline-none resize-none" />
+                  <p className="text-[9px] text-gray-400">纯文本每行一条 Prompt，使用上方选择的意图；CSV 则按每行自动判断意图并提取锚点指纹。</p>
+                </div>
+              )}
             </div>
             <div className="p-8 bg-gray-50 flex gap-4">
               <button onClick={() => setIsBatchImport(false)}
                 className="flex-1 py-3 border border-gray-200 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:bg-white transition-all">取消</button>
-              <button onClick={handleBatchImport} disabled={!batchText.trim() || batchPlatforms.length === 0}
+              <button onClick={handleBatchImport}
+                disabled={isImporting || batchPlatforms.length === 0 || (csvRows.length === 0 && !batchText.trim())}
                 className="flex-1 st-button-primary justify-center disabled:opacity-50">
-                导入 {batchText.trim().split("\n").filter((l) => l.trim()).length || 0} 条
+                {isImporting ? "导入中…" : `导入 ${csvRows.length > 0 ? csvRows.length : (batchText.trim().split("\n").filter((l) => l.trim()).length || 0)} 条`}
               </button>
             </div>
           </div>

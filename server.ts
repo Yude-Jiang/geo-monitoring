@@ -4,7 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import { AIScraper } from "./server/services/scraper.ts";
-import { evaluateResponse } from "./server/services/evaluator.ts";
+import { evaluateResponse, classifyAndExtract, type CsvRowInput } from "./server/services/evaluator.ts";
 import { DEFAULT_PROPOSITIONS, DEFAULT_FINGERPRINTS } from "./server/services/mocks.ts";
 import {
   getObservations,
@@ -57,6 +57,29 @@ async function startServer() {
 
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  // Login status — check which platforms still accept the current session
+  // (key test after Cloud Run deploy: does the overseas IP replay work?)
+  app.get("/api/login-status", async (_req, res) => {
+    try {
+      const status = await scraper.getLoginStatus();
+      res.json({ status });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // Export current browser session — run locally after manual login,
+  // then upload the returned JSON to Cloud Run as a mounted secret.
+  app.post("/api/export-session", async (_req, res) => {
+    try {
+      const filePath = await scraper.exportSession();
+      const session = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      res.json({ filePath, session });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
   });
 
   // Auth routes (login, register, me, logout — see server/auth.ts)
@@ -118,27 +141,67 @@ async function startServer() {
   });
 
   app.post("/api/strategies", requireAuth, (req, res) => {
-    const { campaign_id, prompt, intent, frequency, platforms } = req.body;
+    const { campaign_id, prompt, intent, frequency, platforms,
+            strategic_pillar, propositions, expected_anchors, fingerprints } = req.body;
     if (!prompt?.trim() || !intent || !frequency || !campaign_id) {
       return res.status(400).json({ error: "campaign_id, prompt, intent, frequency 不能为空" });
     }
     const selectedPlatforms = Array.isArray(platforms) && platforms.length > 0
       ? platforms
       : ["Kimi", "豆包", "DeepSeek", "通义千问", "文心一言", "元宝"];
-    const strategy = addStrategy((req as AuthRequest).user!.id, campaign_id, prompt.trim(), intent, frequency, selectedPlatforms);
+    const strategy = addStrategy(
+      (req as AuthRequest).user!.id, campaign_id, prompt.trim(), intent, frequency, selectedPlatforms,
+      strategic_pillar || "", propositions || [], expected_anchors || [], fingerprints || []
+    );
     res.json(strategy);
+  });
+
+  // Bulk import from CSV: auto-classify intent + extract anchor fingerprints
+  app.post("/api/strategies/import-csv", requireAuth, async (req, res) => {
+    const userId = (req as AuthRequest).user!.id;
+    const { rows, campaign_id, frequency, platforms } = req.body as {
+      rows: CsvRowInput[]; campaign_id: string; frequency: string; platforms: string[];
+    };
+    if (!Array.isArray(rows) || rows.length === 0 || !campaign_id) {
+      return res.status(400).json({ error: "rows 和 campaign_id 不能为空" });
+    }
+    const selectedPlatforms = Array.isArray(platforms) && platforms.length > 0
+      ? platforms
+      : ["Kimi", "豆包", "DeepSeek", "通义千问", "文心一言", "元宝"];
+    const freq = frequency || "每天 (24H)";
+
+    try {
+      const classified = await classifyAndExtract(rows);
+      const strategies = rows.map((row, i) =>
+        addStrategy(
+          userId, campaign_id, row.monitoring_prompt.trim(), classified[i].intent, freq, selectedPlatforms,
+          row.strategic_pillar || "",
+          row.core_proposition ? [row.core_proposition] : [],
+          row.expected_anchor ? [row.expected_anchor] : [],
+          classified[i].fingerprints
+        )
+      );
+      res.json({ imported: strategies.length, strategies });
+    } catch (err: any) {
+      console.error("[ImportCSV] failed:", err);
+      res.status(500).json({ error: err.message || "导入失败" });
+    }
   });
 
   app.put("/api/strategies/:id", requireAuth, (req, res) => {
     const userId = (req as AuthRequest).user!.id;
-    const { prompt, intent, frequency, platforms, campaign_id } = req.body;
+    const { prompt, intent, frequency, platforms, campaign_id,
+            strategic_pillar, propositions, expected_anchors, fingerprints } = req.body;
     if (!prompt?.trim() || !intent || !frequency) {
       return res.status(400).json({ error: "prompt, intent, frequency 不能为空" });
     }
     const selectedPlatforms = Array.isArray(platforms) && platforms.length > 0
       ? platforms
       : ["Kimi", "豆包", "DeepSeek", "通义千问", "文心一言", "元宝"];
-    const ok = updateStrategy(req.params.id, userId, prompt.trim(), intent, frequency, selectedPlatforms, campaign_id || "");
+    const ok = updateStrategy(
+      req.params.id, userId, prompt.trim(), intent, frequency, selectedPlatforms, campaign_id || "",
+      strategic_pillar || "", propositions || [], expected_anchors || [], fingerprints || []
+    );
     if (!ok) return res.status(404).json({ error: "策略不存在或无权修改" });
     res.json({ success: true });
   });
@@ -204,7 +267,7 @@ async function startServer() {
   // ─── Task Execution (scrape + evaluate + save to SQLite + screenshot file) ──
 
   app.post("/api/run-task", requireAuth, async (req, res) => {
-    const { platform, prompt, propositions, fingerprints, intent, intentId, campaignId, campaign_id } = req.body;
+    const { platform, prompt, propositions, fingerprints, intent, intentId, campaignId, campaign_id, runBatchId } = req.body;
     const userId = (req as AuthRequest).user!.id;
 
     if (!platform || !prompt) {
@@ -280,6 +343,7 @@ async function startServer() {
         is_mock: false,
         screenshot_path: screenshotPath,
         raw_response: scrapeResult.responseText,
+        run_batch_id: runBatchId || "",
       });
 
       console.log(`[Task] Saved: ${observationId}`);

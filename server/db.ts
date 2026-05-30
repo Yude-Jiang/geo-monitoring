@@ -15,7 +15,10 @@ const DB_PATH = path.join(DATA_DIR, "geo-monitoring.db");
 fs.mkdirSync(path.join(DATA_DIR, "screenshots"), { recursive: true });
 
 const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
+// GCS FUSE 挂载点不支持 POSIX 文件锁，WAL 模式在其上会报错；
+// Cloud Run concurrency=1，DELETE 模式完全够用。
+const journalMode = DATA_DIR.startsWith("/mnt/") ? "DELETE" : "WAL";
+db.pragma(`journal_mode = ${journalMode}`);
 db.pragma("foreign_keys = ON");
 
 // ─── Schema ─────────────────────────────────────────────────────────────────

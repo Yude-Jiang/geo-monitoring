@@ -8,3 +8,5 @@ coverage/
 !.env.example
 .chrome-data/
 data/
+.claude/
+*.txt

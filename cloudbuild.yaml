@@ -1,11 +1,12 @@
 # Cloud Build: 构建镜像并把 Firebase 前端配置在构建期注入 Vite bundle。
+# 使用 Artifact Registry (asia-east1-docker.pkg.dev) 而非已废弃的 gcr.io。
 # Firebase 这些是「公开」值(安全由 Firestore rules 保证),硬编码在此无妨。
 steps:
   - name: "gcr.io/cloud-builders/docker"
     args:
       - build
       - "-t"
-      - "gcr.io/$PROJECT_ID/geo-monitoring:latest"
+      - "asia-east1-docker.pkg.dev/$PROJECT_ID/geo-monitoring/app:latest"
       - "--build-arg"
       - "VITE_FIREBASE_PROJECT_ID=trendradar-485407"
       - "--build-arg"
@@ -23,7 +24,7 @@ steps:
       - "."
 
 images:
-  - "gcr.io/$PROJECT_ID/geo-monitoring:latest"
+  - "asia-east1-docker.pkg.dev/$PROJECT_ID/geo-monitoring/app:latest"
 
 options:
   machineType: "E2_HIGHCPU_8"

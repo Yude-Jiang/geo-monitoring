@@ -9,7 +9,8 @@ set -euo pipefail
 PROJECT_ID="st-china-ai-force"
 REGION="asia-east1"
 SERVICE="geo-monitoring"
-IMAGE="gcr.io/${PROJECT_ID}/${SERVICE}:latest"
+AR_REPO="geo-monitoring"
+IMAGE="asia-east1-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/app:latest"
 
 # DeepSeek API Key 所在的 Secret 名(你已创建好)
 DEEPSEEK_SECRET_NAME="VITE_DEEPSEEK_API_KEY"
@@ -25,12 +26,28 @@ gcloud services enable \
   secretmanager.googleapis.com \
   artifactregistry.googleapis.com
 
-# ── 2. 云端构建镜像(含 Firebase 前端配置) ────────────────────────────────────
+# ── 2. 创建 Artifact Registry 仓库(已存在则跳过) ────────────────────────────
+echo "▶ 创建 Artifact Registry 仓库 (已存在则跳过)..."
+gcloud artifacts repositories create "${AR_REPO}" \
+  --repository-format=docker \
+  --location="${REGION}" \
+  --description="geo-monitoring docker images" \
+  --quiet 2>/dev/null || echo "  (仓库已存在, 跳过)"
+
+# 授权 Cloud Build 服务账号推送到 Artifact Registry
+PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
+CLOUDBUILD_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
+echo "▶ 授权 Cloud Build 账号推送镜像..."
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${CLOUDBUILD_SA}" \
+  --role="roles/artifactregistry.writer" \
+  --quiet 2>/dev/null || true
+
+# ── 3. 云端构建镜像(含 Firebase 前端配置) ────────────────────────────────────
 echo "▶ 提交 Cloud Build..."
 gcloud builds submit --config cloudbuild.yaml .
 
-# ── 3. 授权 Cloud Run 运行时服务账号读取 Secret ──────────────────────────────
-PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
+# ── 4. 授权 Cloud Run 运行时服务账号读取 Secret ──────────────────────────────
 RUNTIME_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 echo "▶ 授权 ${RUNTIME_SA} 读取 Secret..."
 gcloud secrets add-iam-policy-binding "${DEEPSEEK_SECRET_NAME}" \
@@ -38,7 +55,7 @@ gcloud secrets add-iam-policy-binding "${DEEPSEEK_SECRET_NAME}" \
   --role="roles/secretmanager.secretAccessor" \
   --quiet || echo "  (绑定可能已存在, 跳过)"
 
-# ── 4. 部署到 Cloud Run ──────────────────────────────────────────────────────
+# ── 5. 部署到 Cloud Run ──────────────────────────────────────────────────────
 echo "▶ 部署 Cloud Run 服务..."
 gcloud run deploy "${SERVICE}" \
   --image "${IMAGE}" \
@@ -52,7 +69,7 @@ gcloud run deploy "${SERVICE}" \
   --set-env-vars "HEADLESS=true,LLM_PROVIDER=deepseek" \
   --set-secrets "DEEPSEEK_API_KEY=${DEEPSEEK_SECRET_NAME}:latest"
 
-# ── 5. 输出地址并做基础测试 ──────────────────────────────────────────────────
+# ── 6. 输出地址并做基础测试 ──────────────────────────────────────────────────
 SERVICE_URL="$(gcloud run services describe "${SERVICE}" --region "${REGION}" --format='value(status.url)')"
 echo ""
 echo "✅ 部署完成: ${SERVICE_URL}"

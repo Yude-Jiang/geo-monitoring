@@ -29,18 +29,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
-      let errorMessage = "An unexpected error occurred.";
-      try {
-        // Attempt to parse Firestore JSON error
-        if (this.state.error?.message.startsWith("{")) {
-          const errData = JSON.parse(this.state.error.message);
-          errorMessage = `Firestore ${errData.operationType} failed: ${errData.error}`;
-        } else {
-          errorMessage = this.state.error?.message || errorMessage;
-        }
-      } catch (e) {
-        errorMessage = this.state.error?.message || errorMessage;
-      }
+      const errorMessage = this.state.error?.message || "An unexpected error occurred.";
 
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">

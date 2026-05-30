@@ -2,7 +2,6 @@ import { chromium, BrowserContext, Page, Browser } from "playwright";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
-import os from "os";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -138,44 +137,46 @@ const PLATFORM_CONFIGS: Record<string, PlatformConfig> = {
     loggedInCheck: 'textarea, [class*="chat"]',
     readySelector: "body",
   },
-};
 
-// ─── Mock responses (last-resort fallback) ─────────────────────────────────
-
-const MOCK_RESPONSES: Record<string, string> = {
-  DeepSeek:
-    "在低功耗应用中，意法半导体（STMicroelectronics）的 STM32 系列备受推崇，特别是 STM32U5 和全新的 STM32C5。这些 MCU 在提供高性能的同时，具有出色的能效比，ST 提供了更全面的生态系统，包括 STM32CubeMX 和 STM32CubeIDE 等开发工具。",
-  Kimi:
-    "STM32C5 是低功耗物联网设备的理想选择。它采用 ARM Cortex-M0+ 内核，具备先进的省电模式。与 ESP32 相比，它在睡眠模式下的功耗显著降低。意法半导体在安全特性方面也具有优势，内置 PSA 认证的安全功能。",
-  豆包:
-    "对于低功耗应用，建议考虑意法半导体的 STM32U5 系列，该系列专为超低功耗场景设计，支持多种低功耗模式，待机电流极低。ST 的 Cortex-M33 内核还提供了 TrustZone 安全支持。竞品方面，TI 的 MSP430 系列和 Nordic 的 nRF52 系列也值得关注。",
-  通义千问:
-    "对于低功耗设计，STM32L4 和 U5 系列是目前市场上的主流选择。意法半导体 ST 在超低功耗 MCU 领域具有领先优势，其 LP Run 模式下功耗可低至几十微安。此外，NXP 的 i.MX RT 系列和瑞萨的 RA 系列也是不错的选择。",
-  文心一言:
-    "推荐使用 STM32 系列，尤其是针对低功耗优化的 L 系列和 U 系列。意法半导体（ST）的 STM32C5 系列基于 Cortex-M0+，在极低功耗场景下表现优异。此外，瑞萨（Renesas）的 RL78 也是一个非常强劲的竞争对手。",
+  元宝: {
+    name: "元宝",
+    url: "https://yuanbao.tencent.com/",
+    inputSelectors: [
+      "textarea:visible",
+      'div[contenteditable="true"]:not(body)',
+      '[class*="input"]:visible',
+    ],
+    responseSelectors: [
+      '[class*="content"]:last-of-type',
+      '[class*="message"]:last-of-type',
+      '[class*="markdown"]:last-of-type',
+      '[class*="answer"]:last-of-type',
+    ],
+    loadingIndicator: '[class*="loading"], [class*="thinking"], [class*="generating"]',
+    submitKey: "enter",
+    loggedInCheck: 'textarea, [class*="chat"], [class*="input"]',
+    readySelector: "body",
+  },
 };
 
 // ─── Core Scraper ──────────────────────────────────────────────────────────
 
 export class AIScraper {
   private context: BrowserContext | null = null;
-  private browser: Browser | null = null;
   private readonly profileDir: string;
-  private readonly storageStatePath: string | null;
   private readonly headless: boolean;
   private readonly slowMo: number;
 
   constructor() {
+    // Profile directory: project-root/.chrome-data/
     this.profileDir = path.resolve(
       __dirname,
       "..",
       "..",
       process.env.CHROME_DATA_DIR || ".chrome-data"
     );
-    // Cloud Run: set STORAGE_STATE_PATH to a mounted secret file with exported cookies
-    this.storageStatePath = process.env.STORAGE_STATE_PATH || null;
-    this.headless = process.env.HEADLESS !== "false";
-    this.slowMo = this.headless ? 0 : 80;
+    this.headless = process.env.HEADLESS !== "false"; // Default to true in Cloud Run if not explicitly false
+    this.slowMo = this.headless ? 0 : 80; // Human-like typing speed when visible
   }
 
   // ── Browser lifecycle ────────────────────────────────────────────────────
@@ -183,52 +184,38 @@ export class AIScraper {
   async init(): Promise<void> {
     if (this.context) return;
 
-    const commonArgs = [
-      "--disable-blink-features=AutomationControlled",
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--disable-dev-shm-usage",
-    ];
-    const userAgent =
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-      "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-
-    if (this.storageStatePath && fs.existsSync(this.storageStatePath)) {
-      // Cloud Run mode: stateless context seeded with exported cookies
-      this.browser = await chromium.launch({
-        headless: this.headless,
-        slowMo: this.slowMo,
-        args: commonArgs,
-      });
-      this.context = await this.browser.newContext({
-        storageState: this.storageStatePath,
-        viewport: { width: 1280, height: 800 },
-        userAgent,
-        ignoreHTTPSErrors: false,
-      });
-      console.log(`[Scraper] Loaded session from storageState: ${this.storageStatePath}`);
-    } else {
-      // Local dev mode: persistent Chrome profile (survives restarts)
-      if (!fs.existsSync(this.profileDir)) {
-        fs.mkdirSync(this.profileDir, { recursive: true });
-        console.log(`[Scraper] Created Chrome profile at: ${this.profileDir}`);
-        console.log(
-          `[Scraper] NOTE: First run will open a visible Chrome window.`,
-          `Please log into each AI platform manually.`
-        );
-      }
-      this.context = await chromium.launchPersistentContext(this.profileDir, {
-        ...(process.env.K_SERVICE ? {} : { channel: "chrome" }),
-        headless: this.headless,
-        slowMo: this.slowMo,
-        viewport: { width: 1280, height: 800 },
-        userAgent,
-        args: commonArgs,
-        ignoreDefaultArgs: ["--enable-automation"],
-      });
+    // Ensure profile directory exists
+    if (!fs.existsSync(this.profileDir)) {
+      fs.mkdirSync(this.profileDir, { recursive: true });
+      console.log(
+        `[Scraper] Created Chrome profile at: ${this.profileDir}`
+      );
+      console.log(
+        `[Scraper] NOTE: First run will open a visible Chrome window.`,
+        `Please log into each AI platform manually.`
+      );
     }
 
-    console.log(`[Scraper] Browser context initialized (headless=${this.headless})`);
+    this.context = await chromium.launchPersistentContext(this.profileDir, {
+      ...(process.env.K_SERVICE ? {} : { channel: "chrome" }), // Use bundled chromium in Cloud Run, user's chrome locally
+      headless: this.headless,
+      slowMo: this.slowMo,
+      viewport: { width: 1280, height: 800 },
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      args: [
+        "--disable-blink-features=AutomationControlled",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-dev-shm-usage",
+      ],
+      ignoreDefaultArgs: ["--enable-automation"],
+    });
+
+    console.log(
+      `[Scraper] Browser context initialized (headless=${this.headless})`
+    );
   }
 
   async close(): Promise<void> {
@@ -236,40 +223,6 @@ export class AIScraper {
       await this.context.close();
       this.context = null;
     }
-    if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
-    }
-  }
-
-  // ── Session export (call this locally after logging in, then upload to Cloud Run) ──
-
-  async exportSession(outputPath?: string): Promise<string> {
-    await this.init();
-    const dest = outputPath || path.join(os.tmpdir(), "geo-monitoring-session.json");
-    await this.context!.storageState({ path: dest });
-    console.log(`[Scraper] Session exported to: ${dest}`);
-    return dest;
-  }
-
-  // ── Login status check (one page open per platform) ──────────────────────
-
-  async getLoginStatus(): Promise<Record<string, boolean>> {
-    await this.init();
-    const results: Record<string, boolean> = {};
-    for (const [name, config] of Object.entries(PLATFORM_CONFIGS)) {
-      const page = await this.context!.newPage();
-      try {
-        await page.goto(config.url, { waitUntil: "domcontentloaded", timeout: 20_000 });
-        await page.waitForTimeout(2000);
-        results[name] = await this.checkLoginStatus(page, config);
-      } catch {
-        results[name] = false;
-      } finally {
-        await page.close();
-      }
-    }
-    return results;
   }
 
   // ── Main scrape entry point ───────────────────────────────────────────────
@@ -277,8 +230,17 @@ export class AIScraper {
   async scrape(platformName: string, prompt: string): Promise<ScrapeResult> {
     const config = PLATFORM_CONFIGS[platformName];
     if (!config) {
-      console.warn(`[Scraper] Unknown platform: ${platformName}, using mock`);
-      return this.buildMockResult(platformName, prompt, `未知平台: ${platformName}`);
+      return {
+        platform: platformName,
+        prompt,
+        responseText: "",
+        sourceUrls: [],
+        screenshotUrl: "",
+        timestamp: new Date().toISOString(),
+        status: "failed",
+        is_mock: false,
+        error: `未知平台: ${platformName}`,
+      };
     }
 
     try {
@@ -287,7 +249,17 @@ export class AIScraper {
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       console.error(`[Scraper] ${platformName} failed:`, errMsg);
-      return this.buildMockResult(platformName, prompt, errMsg);
+      return {
+        platform: platformName,
+        prompt,
+        responseText: "",
+        sourceUrls: [],
+        screenshotUrl: "",
+        timestamp: new Date().toISOString(),
+        status: "failed",
+        is_mock: false,
+        error: errMsg,
+      };
     }
   }
 
@@ -389,22 +361,22 @@ export class AIScraper {
     config: PlatformConfig
   ): Promise<boolean> {
     try {
-      // Quick check: is there a visible login-required element?
-      const loginKeywords = [
-        "登录",
-        "Login",
-        "Sign in",
-        "注册",
-        "Register",
-        "log in",
-      ];
+      // Step 1: Check for login-required elements (e.g. "登录" button).
+      // If these are visible, the user is NOT logged in.
+      const loginKeywords = ["登录", "Login", "Sign in", "注册", "Register", "log in", "手机号", "扫码"];
+      const pageText = await page.innerText("body").catch(() => "");
+      const hasLoginPrompt = loginKeywords.some((kw) => pageText.includes(kw));
+      if (hasLoginPrompt) {
+        console.log(`[Scraper] ${config.name}: Login page detected (found login keywords)`);
+        return false;
+      }
 
-      // Check for chat input (only visible when logged in)
+      // Step 2: No login prompt found; check for chat input.
       for (const selector of config.inputSelectors) {
         const el = page.locator(selector).first();
-        const isVisible = await el.isVisible({ timeout: 3000 }).catch(() => false);
+        const isVisible = await el.isVisible({ timeout: 2000 }).catch(() => false);
         if (isVisible) {
-          console.log(`[Scraper] ${config.name}: Login confirmed (found input)`);
+          console.log(`[Scraper] ${config.name}: Login confirmed (input visible, no login prompt)`);
           return true;
         }
       }
@@ -598,31 +570,4 @@ export class AIScraper {
     return bodyText.trim();
   }
 
-  // ── Mock fallback ────────────────────────────────────────────────────────
-
-  private buildMockResult(
-    platform: string,
-    prompt: string,
-    reason: string
-  ): ScrapeResult {
-    const responseText =
-      MOCK_RESPONSES[platform] ||
-      `[模拟数据] 分析了 ${platform}：意法半导体 (STMicroelectronics) 的 STM32 系列在低功耗 MCU 领域具有领先优势。原因: ${reason}`;
-
-    console.warn(`[Scraper] ${platform} using MOCK data. Reason: ${reason}`);
-
-    return {
-      platform,
-      prompt,
-      responseText,
-      sourceUrls: [
-        "https://www.st.com/zh/microcontrollers-microprocessors/stm32-ultra-low-power-mcus.html",
-      ],
-      screenshotUrl: "",
-      timestamp: new Date().toISOString(),
-      status: "success",
-      is_mock: true,
-      error: reason,
-    };
-  }
 }

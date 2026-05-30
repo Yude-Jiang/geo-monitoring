@@ -1,4 +1,6 @@
-import { AlertCircle, CheckCircle2, X } from "lucide-react";
+import { useEffect } from "react";
+import { X, ExternalLink } from "lucide-react";
+import { cn } from "@/src/lib/utils";
 import type { Observation } from "../../types";
 
 interface PlaybackModalProps {
@@ -7,127 +9,124 @@ interface PlaybackModalProps {
 }
 
 export function PlaybackModal({ obs, onClose }: PlaybackModalProps) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 bg-st-blue/80 backdrop-blur-md z-[200] flex items-center justify-center p-4 lg:p-8">
-      <div className="bg-white w-full max-w-6xl h-full max-h-[90vh] shadow-2xl flex flex-col border-t-8 border-st-yellow">
+    <div className="fixed inset-0 bg-st-blue/80 backdrop-blur-md z-[200] flex items-center justify-center p-4">
+      <div className="bg-white w-full max-w-3xl max-h-[90vh] shadow-2xl flex flex-col border-t-8 border-st-yellow">
         {/* Header */}
-        <div className="p-6 lg:p-8 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-3 mb-2">
-              <span className="px-3 py-1 bg-st-blue text-white text-[10px] font-black uppercase tracking-widest">
-                {obs.platform}
-              </span>
-              {obs.is_mock ? (
-                <span className="px-3 py-1 bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-widest flex items-center gap-1">
-                  <AlertCircle size={12} />
-                  Simulation / 模拟数据
-                </span>
-              ) : (
-                <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-widest flex items-center gap-1">
-                  <CheckCircle2 size={12} />
-                  Verified Live Scrape / 真实抓取
-                </span>
-              )}
-              <span className="text-[10px] font-bold text-gray-400 font-mono">
-                {obs.timestamp}
-              </span>
-            </div>
-            <h3 className="text-xl lg:text-2xl font-black text-st-blue tracking-tight truncate">
-              {obs.prompt_text}
-            </h3>
+        <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50 flex-shrink-0">
+          <div className="flex flex-wrap items-center gap-3 min-w-0">
+            <span className="px-3 py-1 bg-st-blue text-white text-[10px] font-black uppercase tracking-widest">
+              {obs.platform}
+            </span>
+            <span className="px-2 py-1 bg-st-grey text-st-blue text-[9px] font-bold uppercase">{obs.intent}</span>
+            <span className="text-[10px] font-mono text-gray-400">
+              {new Date(obs.timestamp).toLocaleString("zh-CN")}
+            </span>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-st-red transition-colors p-2 flex-shrink-0"
-            aria-label="Close"
-          >
-            <X size={32} />
+          <button onClick={onClose} className="text-gray-400 hover:text-st-red transition-colors p-1 flex-shrink-0">
+            <X size={24} />
           </button>
         </div>
 
-        {/* Body */}
-        <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
-          {/* Left panel */}
-          <div className="w-full lg:w-1/3 p-6 lg:p-8 border-b lg:border-b-0 lg:border-r border-gray-100 overflow-y-auto space-y-8 bg-gray-50/30">
-            <section className="space-y-4">
-              <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] border-b border-st-blue/10 pb-2">
-                归因判定结果
-              </h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="st-card p-4 bg-white">
-                  <p className="text-[9px] text-gray-400 font-black uppercase mb-1">
-                    推荐排名
-                  </p>
-                  <p className="text-xl font-black text-st-blue">
-                    #{obs.rank_position || "-"}
-                  </p>
-                </div>
-                <div className="st-card p-4 bg-white">
-                  <p className="text-[9px] text-gray-400 font-black uppercase mb-1">
-                    情感得分
-                  </p>
-                  <p className="text-xl font-black text-st-blue">
-                    {obs.sentiment}/10
-                  </p>
-                </div>
-              </div>
-            </section>
+        {/* Body — single column, scrollable */}
+        <div className="flex-1 overflow-y-auto p-6 lg:p-8 space-y-6">
+          {/* Prompt */}
+          <section>
+            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] mb-2">监测提问</h4>
+            <p className="font-black text-st-blue text-sm leading-relaxed">{obs.prompt_text}</p>
+          </section>
 
-            <section className="space-y-4">
-              <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] border-b border-st-blue/10 pb-2">
-                主张命中 (Propositions)
-              </h4>
+          {/* Attribution result */}
+          <section>
+            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] mb-3">归因判定</h4>
+            <div className="grid grid-cols-4 gap-3">
+              <div className="st-card p-3 text-center bg-white">
+                <p className="text-[8px] text-gray-400 font-black uppercase mb-1">提及品牌</p>
+                <p className={cn("text-sm font-black", obs.mentioned ? "text-emerald-500" : "text-gray-300")}>
+                  {obs.mentioned ? "YES" : "NO"}
+                </p>
+              </div>
+              <div className="st-card p-3 text-center bg-white">
+                <p className="text-[8px] text-gray-400 font-black uppercase mb-1">首选推荐</p>
+                <p className={cn("text-sm font-black", obs.top_rec ? "text-st-light-blue" : "text-gray-300")}>
+                  {obs.top_rec ? "TOP" : "—"}
+                </p>
+              </div>
+              <div className="st-card p-3 text-center bg-white">
+                <p className="text-[8px] text-gray-400 font-black uppercase mb-1">排名</p>
+                <p className="text-sm font-black text-st-blue">#{obs.rank_position || "—"}</p>
+              </div>
+              <div className="st-card p-3 text-center bg-white">
+                <p className="text-[8px] text-gray-400 font-black uppercase mb-1">情感</p>
+                <p className={cn("text-sm font-black", obs.sentiment >= 8 ? "text-emerald-500" : obs.sentiment >= 5 ? "text-st-yellow" : "text-red-500")}>
+                  {obs.sentiment}/10
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* Proposition hits */}
+          {obs.proposition_hits && obs.proposition_hits.length > 0 && (
+            <section>
+              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] mb-2">主张命中</h4>
               <div className="flex flex-wrap gap-2">
-                {obs.proposition_hits && obs.proposition_hits.length > 0 ? (
-                  obs.proposition_hits.map((hit, i) => (
-                    <span
-                      key={i}
-                      className="px-3 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase border border-emerald-100"
-                    >
-                      {hit}
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-gray-300 text-xs italic">
-                    无命中主张
+                {obs.proposition_hits.map((hit, i) => (
+                  <span key={i} className="px-3 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase border border-emerald-100">
+                    {hit}
                   </span>
-                )}
+                ))}
               </div>
             </section>
+          )}
 
-            <section className="space-y-4">
-              <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] border-b border-st-blue/10 pb-2">
-                原始回答文本
-              </h4>
-              <div className="bg-white p-6 border border-gray-100 text-sm leading-relaxed text-gray-600 font-medium italic">
-                "{obs.raw_response || "暂无原始文本记录"}"
+          {/* Source URLs */}
+          {(obs.source_urls || []).length > 0 && (
+            <section>
+              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] mb-2">引用来源</h4>
+              <div className="space-y-1">
+                {(obs.source_urls || []).map((url, i) => (
+                  <a
+                    key={i}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-xs text-st-light-blue hover:text-st-blue underline"
+                  >
+                    <ExternalLink size={10} />
+                    {url}
+                  </a>
+                ))}
               </div>
             </section>
-          </div>
+          )}
 
-          {/* Right panel — screenshot evidence */}
-          <div className="flex-1 bg-st-grey p-6 lg:p-8 overflow-y-auto">
-            <h4 className="text-[10px] font-black text-st-blue uppercase tracking-[0.3em] mb-4">
-              前端真实截图证据 (Evidence)
+          {/* Competitor mentions */}
+          {(obs.competitor_mentions || []).length > 0 && (
+            <section>
+              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] mb-2">竞品提及</h4>
+              <div className="flex flex-wrap gap-1.5">
+                {obs.competitor_mentions!.map((c, i) => (
+                  <span key={i} className="px-2 py-0.5 bg-red-50 text-red-600 text-[9px] font-bold border border-red-100">{c}</span>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Raw response — full width, large scrollable area */}
+          <section className="flex flex-col min-h-0">
+            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] mb-2 flex-shrink-0">
+              原始 AI 回答
             </h4>
-            {obs.screenshot_url ? (
-              <div className="shadow-2xl border-4 border-white">
-                <img
-                  src={obs.screenshot_url}
-                  alt="Evidence"
-                  className="w-full h-auto"
-                  referrerPolicy="no-referrer"
-                />
-              </div>
-            ) : (
-              <div className="w-full aspect-video bg-gray-200 flex items-center justify-center text-gray-400">
-                <AlertCircle size={48} strokeWidth={1} />
-                <span className="ml-4 font-black uppercase tracking-widest">
-                  未找到截图证据
-                </span>
-              </div>
-            )}
-          </div>
+            <div className="bg-st-grey border border-gray-200 p-5 text-sm leading-relaxed text-gray-700 font-medium whitespace-pre-wrap break-words overflow-y-auto max-h-[300px]">
+              {obs.raw_response || "暂无原始文本记录"}
+            </div>
+          </section>
         </div>
       </div>
     </div>

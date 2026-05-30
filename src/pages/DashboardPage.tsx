@@ -1,4 +1,3 @@
-import React from "react";
 import {
   AreaChart,
   Area,
@@ -16,9 +15,11 @@ import {
   ExternalLink,
   Trash2,
 } from "lucide-react";
+import { useState, useEffect } from "react";
 import { cn } from "@/src/lib/utils";
 import { StatCard } from "../components/common/StatCard";
 import type { Observation } from "../types";
+import { fetchCampaigns, type Campaign } from "../services/api";
 
 interface DashboardPageProps {
   observations: Observation[];
@@ -27,7 +28,7 @@ interface DashboardPageProps {
     topRecRate: string;
     propHitRate: string;
     avgSentiment: string;
-    acsScore: string;
+    acsScoreData: { value: string; confidence: "low" | "normal" | null };
   };
   trends: {
     visibilityTrend: { value: string; up: boolean };
@@ -42,6 +43,7 @@ interface DashboardPageProps {
   onNavigateToObservations: () => void;
   confirmingDeleteId: string | null;
   onRequestDelete: (id: string) => void;
+  onSelectCampaign: (campaign: Campaign) => void;
 }
 
 export function DashboardPage({
@@ -55,9 +57,36 @@ export function DashboardPage({
   onNavigateToObservations,
   confirmingDeleteId,
   onRequestDelete,
+  onSelectCampaign,
 }: DashboardPageProps) {
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+
+  useEffect(() => {
+    fetchCampaigns().then(setCampaigns).catch(() => {});
+  }, []);
   return (
     <div className="space-y-10">
+      {/* Campaign selector bar */}
+      {campaigns.length > 0 && (
+        <div className="flex flex-wrap gap-3">
+          {campaigns.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => onSelectCampaign(c)}
+              className="st-card px-5 py-3 hover:border-st-yellow hover:translate-y-[-2px] transition-all text-left"
+            >
+              <p className="font-black text-st-blue uppercase tracking-tight text-sm">{c.name}</p>
+              <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">
+                {c.description || "无描述"} · 目标 {c.target_visibility}%
+              </p>
+            </button>
+          ))}
+          {campaigns.length === 0 && (
+            <p className="text-xs text-gray-400">暂无 Campaign，请先在 Prompt 配置中创建</p>
+          )}
+        </div>
+      )}
+
       {/* Executive Summary */}
       <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between bg-st-blue p-6 lg:p-8 text-white shadow-2xl gap-4">
         <div>
@@ -73,23 +102,46 @@ export function DashboardPage({
             Attribution Confidence Score
           </p>
           <div className="flex items-baseline gap-2">
-            <span className="text-5xl lg:text-6xl font-black text-st-yellow">
-              {stats.acsScore}
+            <span
+              className={cn(
+                "text-5xl lg:text-6xl font-black",
+                stats.acsScoreData.confidence === "low"
+                  ? "text-st-yellow/60"
+                  : stats.acsScoreData.confidence === null
+                  ? "text-white/30"
+                  : "text-st-yellow"
+              )}
+            >
+              {stats.acsScoreData.value}
             </span>
-            <span className="text-xl font-bold text-white/20">/ 100</span>
+            {stats.acsScoreData.confidence !== null && (
+              <span className="text-xl font-bold text-white/20">/ 100</span>
+            )}
           </div>
+          {stats.acsScoreData.confidence === "low" && (
+            <span className="text-[8px] font-bold text-st-yellow/50 uppercase tracking-widest">
+              低置信度 · 数据收集中
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Low sample warning */}
-      {observations.length < 20 && (
+      {/* Sample sufficiency warning */}
+      {observations.length < 5 ? (
+        <div className="bg-st-red/10 border-l-4 border-st-red p-4 flex items-center gap-3">
+          <AlertCircle size={20} className="text-st-red flex-shrink-0" />
+          <p className="text-xs font-bold text-st-blue uppercase tracking-wider">
+            [数据不足] 当前样本量 ({observations.length}) 不足 5 条，暂无法计算有效指标。
+          </p>
+        </div>
+      ) : observations.length < 20 ? (
         <div className="bg-st-yellow/10 border-l-4 border-st-yellow p-4 flex items-center gap-3">
           <AlertCircle size={20} className="text-st-yellow flex-shrink-0" />
           <p className="text-xs font-bold text-st-blue uppercase tracking-wider">
-            [Low Sample Warning] 当前样本量 ({observations.length}) 不足 20 条，分析结论仅供参考。
+            [低置信度] 当前样本量 ({observations.length}) 不足 20 条，分析结论仅供参考。
           </p>
         </div>
-      )}
+      ) : null}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8">

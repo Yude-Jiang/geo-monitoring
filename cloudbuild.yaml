@@ -1,26 +1,10 @@
-# Cloud Build: 构建镜像并把 Firebase 前端配置在构建期注入 Vite bundle。
-# 使用 Artifact Registry (asia-east1-docker.pkg.dev) 而非已废弃的 gcr.io。
-# Firebase 这些是「公开」值(安全由 Firestore rules 保证),硬编码在此无妨。
+# Cloud Build: 构建镜像。master 版本无 Firebase，无需注入 VITE_* 构建参数。
 steps:
   - name: "gcr.io/cloud-builders/docker"
     args:
       - build
       - "-t"
       - "asia-east1-docker.pkg.dev/$PROJECT_ID/geo-monitoring/app:latest"
-      - "--build-arg"
-      - "VITE_FIREBASE_PROJECT_ID=trendradar-485407"
-      - "--build-arg"
-      - "VITE_FIREBASE_APP_ID=1:969835621169:web:a7827eea33d9b96407de10"
-      - "--build-arg"
-      - "VITE_FIREBASE_API_KEY=AIzaSyDC5q2Qu9b_DfxuxOrMdn4VIi44SglzAn4"
-      - "--build-arg"
-      - "VITE_FIREBASE_AUTH_DOMAIN=trendradar-485407.firebaseapp.com"
-      - "--build-arg"
-      - "VITE_FIREBASE_FIRESTORE_DATABASE_ID=ai-studio-1e2737ad-c366-4186-9953-5878092438e8"
-      - "--build-arg"
-      - "VITE_FIREBASE_STORAGE_BUCKET=trendradar-485407.firebasestorage.app"
-      - "--build-arg"
-      - "VITE_FIREBASE_MESSAGING_SENDER_ID=969835621169"
       - "."
 
 images:

@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
-import { Loader2, Target, LogIn } from "lucide-react";
-import { useAuth } from "./components/FirebaseProvider";
-import { useFirestoreData } from "./hooks/useFirestoreData";
+import { Loader2 } from "lucide-react";
+import { useAuth } from "./components/AuthProvider";
+import { useServerData } from "./hooks/useServerData";
 import { useAnalytics } from "./hooks/useAnalytics";
 import { Sidebar } from "./components/layout/Sidebar";
 import { Header } from "./components/layout/Header";
@@ -12,6 +12,8 @@ import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { ObservationsPage } from "./pages/ObservationsPage";
 import { PromptsPage } from "./pages/PromptsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { CampaignPage } from "./pages/CampaignPage";
+import { fetchCampaigns, type Campaign } from "./services/api";
 import type { Observation } from "./types";
 import { AuthScreen } from "./components/auth/AuthScreen";
 
@@ -19,6 +21,7 @@ export default function App() {
   const { user, loading: authLoading, login, logout } = useAuth();
   const [activeTab, setActiveTab] = useState("dashboard");
   const [selectedObs, setSelectedObs] = useState<Observation | null>(null);
+  const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -30,11 +33,14 @@ export default function App() {
     observations,
     strategies,
     isRunningTask,
+    setupAllPlatforms,
+    lastSyncAt,
     saveStrategy,
     deleteObservation,
+    updateStrategy,
     deleteStrategy,
     runTask,
-  } = useFirestoreData(user);
+  } = useServerData(user);
 
   const analytics = useAnalytics(observations);
 
@@ -77,14 +83,17 @@ export default function App() {
     topRecRate: analytics.topRecRate,
     propHitRate: analytics.propHitRate,
     avgSentiment: analytics.avgSentiment,
-    acsScore: analytics.acsScore,
+    acsScoreData: analytics.acsScoreData,
   };
 
   return (
     <div className="min-h-screen bg-[#F4F7F9] text-st-blue font-sans selection:bg-st-light-blue/30 st-grid-bg">
       <Sidebar
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={(tab) => {
+          setActiveTab(tab);
+          if (tab === "dashboard") setSelectedCampaign(null);
+        }}
         user={user}
         onLogout={logout}
       />
@@ -94,10 +103,12 @@ export default function App() {
           activeTab={activeTab}
           isRunningTask={isRunningTask}
           onRunTask={() => runTask()}
+          onSetupAll={setupAllPlatforms}
+          lastSyncAt={lastSyncAt}
         />
 
         <div className="p-4 sm:p-6 lg:p-10">
-          {activeTab === "dashboard" && (
+          {activeTab === "dashboard" && !selectedCampaign && (
             <DashboardPage
               observations={observations}
               stats={statsForDashboard}
@@ -109,6 +120,14 @@ export default function App() {
               onNavigateToObservations={() => setActiveTab("observations")}
               confirmingDeleteId={null}
               onRequestDelete={handleRequestDeleteObs}
+              onSelectCampaign={setSelectedCampaign}
+            />
+          )}
+          {activeTab === "dashboard" && selectedCampaign && (
+            <CampaignPage
+              campaign={selectedCampaign}
+              onBack={() => setSelectedCampaign(null)}
+              onUpdated={() => { /* trigger re-fetch */ }}
             />
           )}
 
@@ -122,14 +141,7 @@ export default function App() {
           )}
 
           {activeTab === "analytics" && (
-            <AnalyticsPage
-              factorContributionData={analytics.factorContributionData}
-              competitorSovData={analytics.competitorSovData}
-              benchmarkData={analytics.benchmarkData}
-              platformPerformanceData={analytics.platformPerformanceData}
-              strategyEffectivenessData={analytics.strategyEffectivenessData}
-              heatmapData={analytics.heatmapData}
-            />
+            <AnalyticsPage observations={observations} />
           )}
 
           {activeTab === "prompts" && (
@@ -137,7 +149,8 @@ export default function App() {
               strategies={strategies}
               isRunningTask={isRunningTask}
               onRunTask={runTask}
-              onSaveStrategy={saveStrategy}
+              onSaveStrategy={(campaignId, prompt, intent, freq, plats) => saveStrategy(campaignId, prompt, intent, freq, plats)}
+              onUpdateStrategy={updateStrategy}
               onDeleteStrategy={deleteStrategy}
               onRequestDelete={handleRequestDeleteStrategy}
             />

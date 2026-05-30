@@ -10,13 +10,13 @@ import {
   Menu,
   X,
 } from "lucide-react";
-import type { User } from "firebase/auth";
+import type { AppUser } from "../AuthProvider";
 import { cn } from "@/src/lib/utils";
 
 interface SidebarProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
-  user: User;
+  user: AppUser;
   onLogout: () => void;
 }
 
@@ -155,11 +155,7 @@ export function Sidebar({ activeTab, onTabChange, user, onLogout }: SidebarProps
             onClick={onLogout}
           >
             <div className="w-10 h-10 rounded-none bg-st-yellow flex items-center justify-center text-st-blue font-black text-sm overflow-hidden shadow-lg shadow-st-yellow/20">
-              {user.photoURL ? (
-                <img src={user.photoURL} alt="Avatar" />
-              ) : (
-                user.displayName?.charAt(0)
-              )}
+              {user.displayName?.charAt(0) || user.id.charAt(0)}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold truncate">{user.displayName}</p>

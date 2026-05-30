@@ -11,7 +11,7 @@ export function useAnalytics(observations: Observation[]) {
         topRecRate: "0.0",
         propHitRate: "0.0",
         avgSentiment: "0.0",
-        acsScore: "N/A",
+        acsScoreData: { value: "数据不足", confidence: null },
       };
 
     const mentioned = observations.filter((o) => o.mentioned).length;
@@ -22,81 +22,64 @@ export function useAnalytics(observations: Observation[]) {
 
     const visibilityRate = ((mentioned / total) * 100).toFixed(1);
     const topRecRate = ((topRec / total) * 100).toFixed(1);
-    const propHitRate = (
-      (propHit / (mentioned || 1)) *
-      100
-    ).toFixed(1);
+    const propHitRate = total > 0
+      ? ((propHit / total) * 100).toFixed(1)
+      : "0.0";
     const avgSentiment = (
       observations.reduce((a, o) => a + o.sentiment, 0) / total
     ).toFixed(1);
 
-    const acsScore =
-      total >= 20
-        ? Math.min(
-            100,
-            Number(visibilityRate) * 0.2 +
-              Number(topRecRate) * 0.3 +
-              Number(propHitRate) * 0.3 +
-              Number(avgSentiment) * 10 * 0.2
-          ).toFixed(0)
-        : "N/A";
+    const acsRaw = Math.min(
+      100,
+      Number(visibilityRate) * 0.2 +
+        Number(topRecRate) * 0.3 +
+        Number(propHitRate) * 0.3 +
+        Number(avgSentiment) * 10 * 0.2
+    );
 
-    return { visibilityRate, topRecRate, propHitRate, avgSentiment, acsScore };
+    const acsScoreData: { value: string; confidence: "low" | "normal" | null } =
+      total < 5
+        ? { value: "数据不足", confidence: null }
+        : total < 20
+        ? { value: acsRaw.toFixed(0), confidence: "low" }
+        : { value: acsRaw.toFixed(0), confidence: "normal" };
+
+    return { visibilityRate, topRecRate, propHitRate, avgSentiment, acsScoreData };
   }, [observations]);
 
-  // ─── Trend calculation (current vs previous period) ─────────
+  // ─── Trend calculation (last 7 days vs previous 7 days) ──────
   const trends = useMemo(() => {
     if (observations.length < 4) {
-      return {
-        visibilityTrend: { value: "0.0%", up: true },
-        topRecTrend: { value: "0.0%", up: true },
-        propHitTrend: { value: "0.0%", up: true },
-        sentimentTrend: { value: "0.0", up: true },
-      };
+      const none = { value: "—", up: true };
+      return { visibilityTrend: none, topRecTrend: none, propHitTrend: none, sentimentTrend: none };
     }
 
-    const sorted = [...observations].sort(
-      (a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
-    const mid = Math.floor(sorted.length / 2);
-    const prevSet = sorted.slice(0, mid);
-    const currSet = sorted.slice(mid);
+    const now = Date.now();
+    const last7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const prev14d = new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString();
+
+    const postSet = observations.filter((o) => o.timestamp >= last7d);
+    const baseSet = observations.filter((o) => o.timestamp >= prev14d && o.timestamp < last7d);
+
+    if (baseSet.length === 0 && postSet.length === 0) {
+      const none = { value: "—", up: true };
+      return { visibilityTrend: none, topRecTrend: none, propHitTrend: none, sentimentTrend: none };
+    }
 
     const rate = (set: Observation[], pred: (o: Observation) => boolean) =>
-      set.length > 0
-        ? (set.filter(pred).length / set.length) * 100
-        : 0;
+      set.length > 0 ? (set.filter(pred).length / set.length) * 100 : 0;
 
-    const prevVis = rate(prevSet, (o) => o.mentioned);
-    const currVis = rate(currSet, (o) => o.mentioned);
-    const prevTop = rate(prevSet, (o) => o.top_rec);
-    const currTop = rate(currSet, (o) => o.top_rec);
-    const prevProp = rate(
-      prevSet,
-      (o) => (o.proposition_hits?.length || 0) > 0
-    );
-    const currProp = rate(
-      currSet,
-      (o) => (o.proposition_hits?.length || 0) > 0
-    );
-    const prevSent =
-      prevSet.length > 0
-        ? prevSet.reduce((a, o) => a + o.sentiment, 0) / prevSet.length
-        : 0;
-    const currSent =
-      currSet.length > 0
-        ? currSet.reduce((a, o) => a + o.sentiment, 0) / currSet.length
-        : 0;
+    const prevVis = rate(baseSet, (o) => o.mentioned);
+    const currVis = rate(postSet, (o) => o.mentioned);
+    const prevTop = rate(baseSet, (o) => o.top_rec);
+    const currTop = rate(postSet, (o) => o.top_rec);
+    const prevProp = rate(baseSet, (o) => (o.proposition_hits?.length || 0) > 0);
+    const currProp = rate(postSet, (o) => (o.proposition_hits?.length || 0) > 0);
+    const prevSent = baseSet.length > 0 ? baseSet.reduce((a, o) => a + o.sentiment, 0) / baseSet.length : 0;
+    const currSent = postSet.length > 0 ? postSet.reduce((a, o) => a + o.sentiment, 0) / postSet.length : 0;
 
-    const fmt = (diff: number) => ({
-      value: `${diff >= 0 ? "+" : ""}${diff.toFixed(1)}%`,
-      up: diff >= 0,
-    });
-    const fmtSent = (diff: number) => ({
-      value: `${diff >= 0 ? "+" : ""}${diff.toFixed(1)}`,
-      up: diff >= 0,
-    });
+    const fmt = (diff: number) => ({ value: `${diff >= 0 ? "+" : ""}${diff.toFixed(1)}%`, up: diff >= 0 });
+    const fmtSent = (diff: number) => ({ value: `${diff >= 0 ? "+" : ""}${diff.toFixed(1)}`, up: diff >= 0 });
 
     return {
       visibilityTrend: fmt(currVis - prevVis),
@@ -138,9 +121,8 @@ export function useAnalytics(observations: Observation[]) {
 
   // ─── Competitor SOV ─────────────────────────────────────────
   const competitorSovData = useMemo(() => {
-    const counts: Record<string, number> = { STMicroelectronics: 0 };
+    const counts: Record<string, number> = {};
     observations.forEach((o) => {
-      if (o.mentioned) counts["STMicroelectronics"]++;
       o.competitor_mentions?.forEach((comp) => {
         counts[comp] = (counts[comp] || 0) + 1;
       });
@@ -163,59 +145,18 @@ export function useAnalytics(observations: Observation[]) {
     const propHits = observations.filter(
       (o) => (o.proposition_hits?.length || 0) > 0
     ).length;
-    const sourceHits = observations.filter(
-      (o) => (o.source_urls?.length || 0) > 0
-    ).length;
+    const uniqueDomainCount = observations.filter((o) => {
+      const domains = new Set((o.source_urls || []).map((u) => {
+        try { return new URL(u).hostname; } catch { return u; }
+      }));
+      return domains.size >= 2;
+    }).length;
 
     return [
       { name: "品牌提及", value: Number(((mentioned / total) * 100).toFixed(1)) },
       { name: "首位推荐", value: Number(((topRec / total) * 100).toFixed(1)) },
       { name: "主张命中", value: Number(((propHits / total) * 100).toFixed(1)) },
-      { name: "来源引用", value: Number(((sourceHits / total) * 100).toFixed(1)) },
-    ];
-  }, [observations]);
-
-  // ─── Benchmark vs Post-launch ──────────────────────────────
-  const benchmarkData = useMemo(() => {
-    if (observations.length < 6) {
-      return [
-        { label: "提及率", base: 45, post: 45 },
-        { label: "首推率", base: 12, post: 12 },
-        { label: "主张命中", base: 20, post: 20 },
-        { label: "情感分", base: 55, post: 55 },
-      ];
-    }
-
-    const sorted = [...observations].sort(
-      (a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
-    const mid = Math.floor(sorted.length / 2);
-    const baseSet = sorted.slice(0, mid);
-    const postSet = sorted.slice(mid);
-
-    const calcStats = (set: Observation[]) => {
-      const total = set.length || 1;
-      return {
-        mention: (set.filter((o) => o.mentioned).length / total) * 100,
-        topRec: (set.filter((o) => o.top_rec).length / total) * 100,
-        propHit:
-          (set.filter((o) => (o.proposition_hits?.length || 0) > 0).length /
-            total) *
-          100,
-        sentiment:
-          (set.reduce((acc, o) => acc + o.sentiment, 0) / total) * 10,
-      };
-    };
-
-    const bs = calcStats(baseSet);
-    const ps = calcStats(postSet);
-
-    return [
-      { label: "提及率", base: Math.round(bs.mention), post: Math.round(ps.mention) },
-      { label: "首推率", base: Math.round(bs.topRec), post: Math.round(ps.topRec) },
-      { label: "主张命中", base: Math.round(bs.propHit), post: Math.round(ps.propHit) },
-      { label: "情感分", base: Math.round(bs.sentiment), post: Math.round(ps.sentiment) },
+      { name: "多源引用(≥2)", value: Number(((uniqueDomainCount / total) * 100).toFixed(1)) },
     ];
   }, [observations]);
 
@@ -256,7 +197,7 @@ export function useAnalytics(observations: Observation[]) {
 
     return Object.entries(map)
       .map(([prompt, s]) => ({
-        prompt: prompt.length > 25 ? prompt.slice(0, 25) + "..." : prompt,
+        prompt: prompt.length > 35 ? prompt.slice(0, 35) + "…" : prompt,
         effectiveness: Number(((s.mentioned / s.total) * 100).toFixed(1)),
       }))
       .sort((a, b) => b.effectiveness - a.effectiveness)
@@ -265,27 +206,26 @@ export function useAnalytics(observations: Observation[]) {
 
   // ─── Heatmap (Platform × Intent — dynamic) ─────────────────
   const heatmapData = useMemo(() => {
-    const intents = ["产品发现", "竞品对比", "技术咨询", "品牌口碑"];
-    const platformNames = ["Kimi", "豆包", "DeepSeek", "文心一言"];
-
+    // Derive platforms and intents from actual observation data
+    const platformSet = new Set<string>();
+    const intentSet = new Set<string>();
     const grid: Record<string, Record<string, { total: number; mentioned: number }>> = {};
-    platformNames.forEach((p) => {
-      grid[p] = {};
-      intents.forEach((i) => {
-        grid[p][i] = { total: 0, mentioned: 0 };
-      });
-    });
 
     observations.forEach((o) => {
-      if (grid[o.platform]?.[o.intent]) {
-        grid[o.platform][o.intent].total++;
-        if (o.mentioned) grid[o.platform][o.intent].mentioned++;
-      }
+      platformSet.add(o.platform);
+      intentSet.add(o.intent);
+      if (!grid[o.platform]) grid[o.platform] = {};
+      if (!grid[o.platform][o.intent]) grid[o.platform][o.intent] = { total: 0, mentioned: 0 };
+      grid[o.platform][o.intent].total++;
+      if (o.mentioned) grid[o.platform][o.intent].mentioned++;
     });
+
+    const intents = [...intentSet].sort();
+    const platforms = [...platformSet].sort();
 
     return {
       intents,
-      platforms: platformNames,
+      platforms,
       getValue: (platform: string, intent: string): number => {
         const cell = grid[platform]?.[intent];
         if (!cell || cell.total === 0) return 0;
@@ -295,12 +235,15 @@ export function useAnalytics(observations: Observation[]) {
   }, [observations]);
 
   return {
-    ...stats,
+    visibilityRate: stats.visibilityRate,
+    topRecRate: stats.topRecRate,
+    propHitRate: stats.propHitRate,
+    avgSentiment: stats.avgSentiment,
+    acsScoreData: stats.acsScoreData,
     trends,
     visibilityTrendData,
     competitorSovData,
     factorContributionData,
-    benchmarkData,
     platformPerformanceData,
     strategyEffectivenessData,
     heatmapData,

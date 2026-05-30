@@ -1,5 +1,6 @@
 export interface Observation {
   id: string;
+  user_id?: string;  // SQLite-backed: owner user ID
   timestamp: string;
   platform: string;
   intent: string;
@@ -24,9 +25,11 @@ export interface Observation {
 
 export interface PromptStrategy {
   id: string;
+  campaign_id?: string;
   prompt: string;
   intent: string;
   frequency: string;
+  platforms: string[];  // selected AI platforms to monitor
   createdAt: string;
 }
 

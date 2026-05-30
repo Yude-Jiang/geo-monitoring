@@ -23,8 +23,13 @@ import {
   deleteCampaign,
   addTaskLog,
   getTaskLogs,
+  getUnsyncedObservations,
+  markObservationSynced,
+  markObservationUnsynced,
+  resolveUserId,
 } from "./server/db.ts";
 import { requireAuth, registerAuthRoutes, type AuthRequest } from "./server/auth.ts";
+import { isAgentMode, forwardObservation, NODE_LOCATION } from "./server/services/forwarder.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,6 +37,10 @@ const __dirname = path.dirname(__filename);
 const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, "data");
 const SCREENSHOTS_DIR = path.join(DATA_DIR, "screenshots");
 fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+
+// Central-side ingest config (for receiving pushes from mainland nodes)
+const INGEST_TOKEN = process.env.INGEST_TOKEN || "";
+const INGEST_USERNAME = process.env.INGEST_USERNAME || "admin";
 
 const scraper = new AIScraper();
 
@@ -78,6 +87,59 @@ async function startServer() {
       const session = JSON.parse(fs.readFileSync(filePath, "utf-8"));
       res.json({ filePath, session });
     } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // Ingest — central server receives a fully-scraped+evaluated observation pushed
+  // by a mainland node. Authenticated by a shared INGEST_TOKEN (not a user session),
+  // since nodes run autonomously behind NAT. Stored under INGEST_USERNAME's account.
+  app.post("/api/ingest", (req, res) => {
+    const header = req.headers.authorization || "";
+    const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+    if (!INGEST_TOKEN || token !== INGEST_TOKEN) {
+      return res.status(401).json({ error: "Invalid ingest token" });
+    }
+
+    const o = req.body || {};
+    if (!o.platform || !o.prompt_text) {
+      return res.status(400).json({ error: "platform 和 prompt_text 必填" });
+    }
+
+    const targetUser = resolveUserId(INGEST_USERNAME);
+    if (!targetUser) {
+      return res.status(500).json({ error: `汇总账号 ${INGEST_USERNAME} 不存在，请先在中央注册该账号` });
+    }
+
+    try {
+      const id = addObservation({
+        userId: targetUser,
+        timestamp: o.timestamp || new Date().toISOString(),
+        platform: o.platform,
+        intent: o.intent || "产品发现",
+        intent_id: o.intent_id || "",
+        campaign_id: o.campaign_id || "default_campaign",
+        session_type: o.session_type || "anonymous",
+        prompt_text: o.prompt_text,
+        mentioned: o.mentioned,
+        top_rec: o.top_rec,
+        top_3_rec: o.top_3_rec,
+        sentiment: o.sentiment ?? 0,
+        rank_position: o.rank_position ?? 0,
+        proposition_hits: o.proposition_hits || [],
+        fingerprint_matches: o.fingerprint_matches || [],
+        source_urls: o.source_urls || [],
+        competitor_mentions: o.competitor_mentions || [],
+        status: o.status || "success",
+        is_mock: o.is_mock,
+        screenshot_path: "",  // screenshots stay on the node
+        raw_response: o.raw_response || "",
+        run_batch_id: o.run_batch_id || "",
+        location: o.location || "",
+      });
+      res.json({ success: true, id });
+    } catch (error) {
+      console.error("[Ingest] failed:", error);
       res.status(500).json({ error: String(error) });
     }
   });
@@ -344,9 +406,18 @@ async function startServer() {
         screenshot_path: screenshotPath,
         raw_response: scrapeResult.responseText,
         run_batch_id: runBatchId || "",
+        location: NODE_LOCATION,  // stamp this node's location (empty on central)
       });
 
       console.log(`[Task] Saved: ${observationId}`);
+
+      // Agent mode: push this observation up to the central server. On failure,
+      // mark it unsynced so the periodic flush retries it later.
+      if (isAgentMode()) {
+        const saved = getObservations(userId).find((o) => o.id === observationId);
+        const ok = saved ? await forwardObservation(saved) : false;
+        if (!ok) markObservationUnsynced(observationId);
+      }
 
       // Log result
       const logStatus = evaluation ? "success" : "eval_failed";
@@ -382,6 +453,21 @@ async function startServer() {
     app.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
+  }
+
+  // Agent mode: periodically re-push any observations that failed to forward
+  // (e.g. central was unreachable). Local SQLite acts as an offline buffer.
+  if (isAgentMode()) {
+    console.log(`[Agent] 节点模式启用 · 地点=${NODE_LOCATION} · 每 60s 补推未同步记录`);
+    setInterval(async () => {
+      const pending = getUnsyncedObservations(50);
+      if (pending.length === 0) return;
+      console.log(`[Agent] 补推 ${pending.length} 条未同步记录...`);
+      for (const obs of pending) {
+        const ok = await forwardObservation(obs);
+        if (ok) markObservationSynced(obs.id);
+      }
+    }, 60_000);
   }
 
   app.listen(PORT, "0.0.0.0", () => {

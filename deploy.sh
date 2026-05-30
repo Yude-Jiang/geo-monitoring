@@ -64,7 +64,18 @@ gcloud storage buckets add-iam-policy-binding "gs://${DATA_BUCKET}" \
   --role="roles/storage.objectAdmin" \
   --quiet 2>/dev/null || true
 
-# 7. 部署到 Cloud Run (gen2 执行环境支持 GCS FUSE 挂载)
+# 7. 创建/读取分布式采集的 ingest 共享密钥 (节点用它推送数据到中央)
+INGEST_SECRET_NAME="geo-monitoring-ingest-token"
+if ! gcloud secrets describe "${INGEST_SECRET_NAME}" >/dev/null 2>&1; then
+  echo "▶ 生成 ingest 共享密钥..."
+  openssl rand -hex 24 | gcloud secrets create "${INGEST_SECRET_NAME}" --data-file=-
+fi
+gcloud secrets add-iam-policy-binding "${INGEST_SECRET_NAME}" \
+  --member="serviceAccount:${RUNTIME_SA}" \
+  --role="roles/secretmanager.secretAccessor" \
+  --quiet 2>/dev/null || true
+
+# 8. 部署到 Cloud Run (gen2 执行环境支持 GCS FUSE 挂载)
 echo "▶ 部署 Cloud Run 服务..."
 gcloud run deploy "${SERVICE}" \
   --image "${IMAGE}" \
@@ -76,15 +87,21 @@ gcloud run deploy "${SERVICE}" \
   --cpu 2 \
   --concurrency 1 \
   --timeout 300 \
-  --set-env-vars "HEADLESS=true,LLM_PROVIDER=deepseek,DATA_DIR=${GCS_MOUNT}" \
-  --set-secrets "DEEPSEEK_API_KEY=${DEEPSEEK_SECRET_NAME}:latest" \
+  --set-env-vars "HEADLESS=true,LLM_PROVIDER=deepseek,DATA_DIR=${GCS_MOUNT},INGEST_USERNAME=admin" \
+  --set-secrets "DEEPSEEK_API_KEY=${DEEPSEEK_SECRET_NAME}:latest,INGEST_TOKEN=${INGEST_SECRET_NAME}:latest" \
   --add-volume "name=gcs-data,type=cloud-storage,bucket=${DATA_BUCKET}" \
   --add-volume-mount "volume=gcs-data,mount-path=${GCS_MOUNT}"
 
-# 8. 输出结果
+# 9. 输出结果
 SERVICE_URL="$(gcloud run services describe "${SERVICE}" --region "${REGION}" --format='value(status.url)')"
+INGEST_TOKEN_VALUE="$(gcloud secrets versions access latest --secret="${INGEST_SECRET_NAME}")"
 echo ""
 echo "✅ 部署完成: ${SERVICE_URL}"
 echo "   SQLite 数据持久化路径: gs://${DATA_BUCKET} (挂载至 ${GCS_MOUNT})"
+echo ""
+echo "📡 分布式采集节点配置 (填入各节点的 start-node.ps1):"
+echo "   CENTRAL_URL   = ${SERVICE_URL}"
+echo "   INGEST_TOKEN  = ${INGEST_TOKEN_VALUE}"
+echo "   (汇总账号 INGEST_USERNAME=admin, 请确保中央已注册 admin 账号)"
 echo ""
 curl -s "${SERVICE_URL}/api/health" && echo ""

@@ -22,6 +22,7 @@ export interface Observation {
   raw_response?: string;
   is_mock?: boolean;
   run_batch_id?: string;  // groups the N samples of one run
+  location?: string;      // which mainland node/location produced this (distributed collection)
 }
 
 export interface PromptStrategy {

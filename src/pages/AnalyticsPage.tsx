@@ -18,11 +18,17 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [selectedCampaign, setSelectedCampaign] = useState<string>("all");
   const [selectedIntent, setSelectedIntent] = useState<string>("all");
+  const [selectedLocation, setSelectedLocation] = useState<string>("all");
   const [timeRange, setTimeRange] = useState<7 | 30 | 0>(0);
 
   useEffect(() => { fetchCampaigns().then(setCampaigns).catch(() => {}); }, []);
 
-  // Filter observations by campaign + intent + time range
+  // Distinct collection locations present in the data (distributed nodes)
+  const availableLocations = useMemo(() => {
+    return [...new Set(observations.map((o) => o.location).filter((l): l is string => Boolean(l)))].sort();
+  }, [observations]);
+
+  // Filter observations by campaign + intent + location + time range
   const filtered = useMemo(() => {
     let obs = observations;
     if (selectedCampaign !== "all") {
@@ -31,12 +37,38 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
     if (selectedIntent !== "all") {
       obs = obs.filter((o) => o.intent === selectedIntent);
     }
+    if (selectedLocation !== "all") {
+      obs = obs.filter((o) => (o.location || "（未标注/中央）") === selectedLocation);
+    }
     if (timeRange > 0) {
       const since = new Date(Date.now() - timeRange * 24 * 60 * 60 * 1000).toISOString();
       obs = obs.filter((o) => o.timestamp >= since);
     }
     return obs;
-  }, [observations, selectedCampaign, selectedIntent, timeRange]);
+  }, [observations, selectedCampaign, selectedIntent, selectedLocation, timeRange]);
+
+  // Per-location visibility comparison (the core value of distributed collection):
+  // does the same brand/prompt surface differently across mainland regions?
+  const locationComparison = useMemo(() => {
+    const byLoc = new Map<string, Observation[]>();
+    for (const o of filtered) {
+      const loc = o.location || "（未标注/中央）";
+      if (!byLoc.has(loc)) byLoc.set(loc, []);
+      byLoc.get(loc)!.push(o);
+    }
+    return [...byLoc.entries()]
+      .map(([loc, set]) => {
+        const n = set.length;
+        return {
+          location: loc,
+          n,
+          mention: Math.round((set.filter((o) => o.mentioned).length / n) * 100),
+          topRec: Math.round((set.filter((o) => o.top_rec).length / n) * 100),
+          sentiment: (set.reduce((a, o) => a + o.sentiment, 0) / n).toFixed(1),
+        };
+      })
+      .sort((a, b) => b.mention - a.mention);
+  }, [filtered]);
 
   // Derive available intents from (already campaign-filtered) observations
   const availableIntents = useMemo(() => {
@@ -110,6 +142,20 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
               <option key={i} value={i}>{i}</option>
             ))}
           </select>
+          {/* Location selector — only when distributed nodes have reported */}
+          {availableLocations.length > 0 && (
+            <select
+              value={selectedLocation}
+              onChange={(e) => setSelectedLocation(e.target.value)}
+              className="bg-st-blue border-none text-white font-black text-[10px] uppercase tracking-widest px-4 py-2.5 outline-none"
+              title="按采集地域筛选"
+            >
+              <option value="all">全部地域</option>
+              {availableLocations.map((l) => (
+                <option key={l} value={l}>{l}</option>
+              ))}
+            </select>
+          )}
           {/* Time range */}
           <div className="flex gap-1 bg-st-grey p-1">
             {([
@@ -129,6 +175,49 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
           </div>
         </div>
       </div>
+
+      {/* 各地域可见度对比 — distributed collection core view */}
+      {availableLocations.length > 0 && (
+        <div className="st-card p-6">
+          <h4 className="text-xs font-bold text-st-blue uppercase tracking-wider mb-1">各地域可见度对比</h4>
+          <p className="text-xs text-gray-400 mb-4 leading-relaxed">
+            同一品牌/Prompt 在大陆不同采集地域被 AI 提及的差异。地域差异大 = AI 回答存在地理个性化，需分区优化 GEO 策略。
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  <th className="py-3 pr-4">采集地域</th>
+                  <th className="py-3 px-3">样本数</th>
+                  <th className="py-3 px-3">提及率</th>
+                  <th className="py-3 px-3">首推率</th>
+                  <th className="py-3 px-3">情感均值</th>
+                  <th className="py-3 pl-3 w-1/3">提及率分布</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {locationComparison.map((row) => (
+                  <tr key={row.location} className="hover:bg-gray-50/30">
+                    <td className="py-3 pr-4 font-bold text-st-blue">{row.location}</td>
+                    <td className="py-3 px-3 text-gray-500">
+                      {row.n}
+                      {row.n < 5 && <span className="ml-1 text-xs text-red-400">(不足)</span>}
+                    </td>
+                    <td className="py-3 px-3 font-black text-st-blue">{row.mention}%</td>
+                    <td className="py-3 px-3 font-bold text-gray-600">{row.topRec}%</td>
+                    <td className="py-3 px-3 font-bold text-gray-600">{row.sentiment}</td>
+                    <td className="py-3 pl-3">
+                      <div className="w-full h-2 bg-st-grey overflow-hidden">
+                        <div className="h-full bg-st-blue transition-all duration-500" style={{ width: `${row.mention}%` }} />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Heatmap + Benchmark */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">

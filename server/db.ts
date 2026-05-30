@@ -121,6 +121,13 @@ try { db.exec(`ALTER TABLE strategies ADD COLUMN fingerprints TEXT NOT NULL DEFA
 // Migration: group multiple samples of one run together
 try { db.exec(`ALTER TABLE observations ADD COLUMN run_batch_id TEXT DEFAULT ''`); } catch {}
 
+// Migration: which mainland node/location produced this observation (distributed collection)
+try { db.exec(`ALTER TABLE observations ADD COLUMN location TEXT DEFAULT ''`); } catch {}
+
+// Migration: agent-mode push status (0 = pending forward to central, 1 = synced/local-only).
+// Default 1 so central and pre-existing rows are never re-forwarded.
+try { db.exec(`ALTER TABLE observations ADD COLUMN synced INTEGER DEFAULT 1`); } catch {}
+
 // ─── Prepared statements ────────────────────────────────────────────────────
 
 const stmts = {
@@ -188,17 +195,22 @@ const stmts = {
       id, user_id, timestamp, platform, intent, intent_id, campaign_id,
       session_type, prompt_text, mentioned, top_rec, top_3_rec, sentiment,
       rank_position, proposition_hits, fingerprint_matches, source_urls,
-      competitor_mentions, status, is_mock, screenshot_path, raw_response, run_batch_id
+      competitor_mentions, status, is_mock, screenshot_path, raw_response, run_batch_id, location
     ) VALUES (
       ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?, ?
     )`
   ),
   deleteObservation: db.prepare(
     "DELETE FROM observations WHERE id = ? AND user_id = ?"
   ),
+  getUnsyncedObservations: db.prepare(
+    "SELECT * FROM observations WHERE synced = 0 ORDER BY timestamp ASC LIMIT ?"
+  ),
+  markObservationSynced: db.prepare("UPDATE observations SET synced = 1 WHERE id = ?"),
+  markObservationUnsynced: db.prepare("UPDATE observations SET synced = 0 WHERE id = ?"),
 
   // Task logs
   insertLog: db.prepare(
@@ -245,6 +257,7 @@ function rowToObservation(row: Record<string, unknown>): Observation {
     screenshot_url: row.screenshot_path as string | undefined,
     raw_response: row.raw_response as string | undefined,
     run_batch_id: (row.run_batch_id as string) || undefined,
+    location: (row.location as string) || undefined,
   };
 }
 
@@ -287,7 +300,8 @@ export function addObservation(data: Record<string, unknown>): string {
     data.is_mock ? 1 : 0,
     data.screenshot_path || "",
     data.raw_response || "",
-    data.run_batch_id || ""
+    data.run_batch_id || "",
+    data.location || ""
   );
   return id;
 }
@@ -299,6 +313,27 @@ export function getObservationsByCampaign(campaignId: string): Observation[] {
 export function deleteObservation(id: string, userId: string): boolean {
   const result = stmts.deleteObservation.run(id, userId);
   return result.changes > 0;
+}
+
+// ─── Agent-mode forward buffering ─────────────────────────────────────────────
+
+export function getUnsyncedObservations(limit = 50): Observation[] {
+  return stmts.getUnsyncedObservations.all(limit).map(asRow).map(rowToObservation);
+}
+
+export function markObservationSynced(id: string): void {
+  stmts.markObservationSynced.run(id);
+}
+
+export function markObservationUnsynced(id: string): void {
+  stmts.markObservationUnsynced.run(id);
+}
+
+// Resolve the central-side ingest target user (user.id == username). Returns the
+// username if it exists, else null.
+export function resolveUserId(username: string): string | null {
+  const user = stmts.getUser.get(username) as Record<string, unknown> | undefined;
+  return user ? (user.id as string) : null;
 }
 
 // ─── Campaigns ───────────────────────────────────────────────────────────────

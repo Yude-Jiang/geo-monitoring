@@ -1,14 +1,14 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell,
+  ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from "recharts";
 import { cn } from "@/src/lib/utils";
 import type { Observation } from "../types";
 import { fetchCampaigns, type Campaign } from "../services/api";
 import { useAnalytics } from "../hooks/useAnalytics";
 
-const SOV_COLORS = ["#00205B", "#FFD200", "#3cb4e5", "#94a3b8", "#e2e8f0", "#f8fafc"];
+const SOV_COLORS = ["#00205B", "#FFD200", "#3cb4e5", "#64748b", "#0ea5e9", "#f59e0b"];
 
 interface AnalyticsPageProps {
   observations: Observation[];
@@ -142,7 +142,15 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
                 <tr className="border-b border-gray-100">
                   <th className="pb-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-wider">平台</th>
                   {analytics.heatmapData.intents.map((intent) => (
-                    <th key={intent} className="pb-3 text-[10px] font-black text-gray-400 uppercase tracking-wider px-3">{intent}</th>
+                    <th key={intent} className="pb-3 px-3">
+                      <div
+                        className="text-xs font-semibold text-gray-500 uppercase text-center truncate cursor-default"
+                        title={intent}
+                        style={{ maxWidth: "80px" }}
+                      >
+                        {intent}
+                      </div>
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -150,7 +158,12 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
                 {analytics.heatmapData.platforms.map((platform) => (
                   <tr key={platform} className="hover:bg-gray-50/30">
                     <td className="py-3 text-left">
-                      <span className="text-[10px] font-black text-st-blue uppercase">{platform}</span>
+                      <span
+                        className="text-xs font-bold text-st-blue uppercase cursor-default"
+                        title={platform}
+                      >
+                        {platform}
+                      </span>
                     </td>
                     {analytics.heatmapData.intents.map((intent) => {
                       const val = analytics.heatmapData.getValue(platform, intent);
@@ -253,23 +266,16 @@ export function AnalyticsPage({ observations }: AnalyticsPageProps) {
                     ))}
                   </Pie>
                   <Tooltip contentStyle={{ borderRadius: 0, border: "1px solid #e2e8f0", fontSize: 10, fontWeight: "bold" }} />
+                  <Legend
+                    iconType="square"
+                    iconSize={10}
+                    formatter={(value) => (
+                      <span style={{ fontSize: "11px", fontWeight: 600, color: "#00205B" }}>{value}</span>
+                    )}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             ) : <div className="h-full flex items-center justify-center text-xs text-gray-300">暂无数据</div>}
-          </div>
-          <div className="mt-4 space-y-1.5">
-            {analytics.competitorSovData.map((item, i) => {
-              const total = analytics.competitorSovData.reduce((a, c) => a + c.value, 0) || 1;
-              return (
-                <div key={item.name} className="flex items-center justify-between text-[9px]">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5" style={{ backgroundColor: SOV_COLORS[i % SOV_COLORS.length] }} />
-                    <span className="font-bold text-st-blue uppercase truncate max-w-[100px]">{item.name}</span>
-                  </div>
-                  <span className="font-bold text-gray-400">{((item.value / total) * 100).toFixed(1)}%</span>
-                </div>
-              );
-            })}
           </div>
         </div>
       </div>

@@ -14,8 +14,11 @@ import {
   ChevronRight,
   ExternalLink,
   Trash2,
+  Info,
 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { formatDistanceToNow } from "date-fns";
+import { zhCN } from "date-fns/locale";
 import { cn } from "@/src/lib/utils";
 import { StatCard } from "../components/common/StatCard";
 import type { Observation } from "../types";
@@ -76,7 +79,7 @@ export function DashboardPage({
               className="st-card px-5 py-3 hover:border-st-yellow hover:translate-y-[-2px] transition-all text-left"
             >
               <p className="font-black text-st-blue uppercase tracking-tight text-sm">{c.name}</p>
-              <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">
+              <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mt-0.5">
                 {c.description || "无描述"} · 目标 {c.target_visibility}%
               </p>
             </button>
@@ -98,9 +101,17 @@ export function DashboardPage({
           </h2>
         </div>
         <div className="text-left lg:text-right">
-          <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">
-            Attribution Confidence Score
-          </p>
+          <div className="flex items-center gap-2 justify-end mb-1">
+            <p className="text-xs font-bold uppercase tracking-widest text-white/40">
+              Attribution Confidence Score
+            </p>
+            <div className="relative group">
+              <Info size={13} className="text-white/40 hover:text-st-yellow cursor-help transition-colors" />
+              <div className="absolute bottom-full right-0 mb-2 w-64 bg-st-dark text-white text-xs font-medium leading-relaxed p-3 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 border border-white/10">
+                综合归因置信分 = 可见度 × 0.4 + 首推率 × 0.3 + 主张命中 × 0.2 + 情感分 × 0.1。满分 100，代表 AI 引擎对品牌的综合感知强度。
+              </div>
+            </div>
+          </div>
           <div className="flex items-baseline gap-2">
             <span
               className={cn(
@@ -119,7 +130,7 @@ export function DashboardPage({
             )}
           </div>
           {stats.acsScoreData.confidence === "low" && (
-            <span className="text-[8px] font-bold text-st-yellow/50 uppercase tracking-widest">
+            <span className="text-xs font-bold text-st-yellow/50 uppercase tracking-widest">
               低置信度 · 数据收集中
             </span>
           )}
@@ -188,11 +199,15 @@ export function DashboardPage({
               </h3>
             </div>
             <div className="flex gap-1 bg-st-grey p-1">
-              <button className="px-4 py-1.5 text-[10px] font-black bg-white text-st-blue shadow-sm">
+              <button className="px-4 py-1.5 text-xs font-bold bg-white text-st-blue shadow-sm">
                 7天
               </button>
-              <button className="px-4 py-1.5 text-[10px] font-black text-gray-500 hover:text-st-blue transition-colors cursor-not-allowed opacity-50" title="功能开发中">
+              <button
+                disabled
+                className="px-4 py-1.5 text-xs font-bold text-gray-400 opacity-50 cursor-not-allowed flex items-center gap-1"
+              >
                 30天
+                <span className="text-xs opacity-60 normal-case font-medium tracking-normal">(即将上线)</span>
               </button>
             </div>
           </div>
@@ -294,15 +309,15 @@ export function DashboardPage({
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-white text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-100">
-                <th className="px-6 lg:px-8 py-5">时间戳</th>
-                <th className="px-6 lg:px-8 py-5">监测平台</th>
-                <th className="px-6 lg:px-8 py-5">监测意图</th>
+              <tr className="bg-white text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                <th className="px-6 lg:px-8 py-5">时间</th>
+                <th className="px-6 lg:px-8 py-5">平台</th>
+                <th className="px-6 lg:px-8 py-5">意图</th>
                 <th className="px-6 lg:px-8 py-5">品牌提及</th>
                 <th className="px-6 lg:px-8 py-5">首选推荐</th>
-                <th className="px-6 lg:px-8 py-5">推荐排名</th>
+                <th className="px-6 lg:px-8 py-5">排名</th>
                 <th className="px-6 lg:px-8 py-5">主张命中</th>
-                <th className="px-6 lg:px-8 py-5">情感得分</th>
+                <th className="px-6 lg:px-8 py-5">情感</th>
                 <th className="px-6 lg:px-8 py-5">状态</th>
                 <th className="px-6 lg:px-8 py-5 text-right">操作</th>
               </tr>
@@ -313,8 +328,10 @@ export function DashboardPage({
                   key={obs.id}
                   className="hover:bg-st-light-blue/5 transition-colors group"
                 >
-                  <td className="px-6 lg:px-8 py-5 text-[10px] font-bold font-mono text-gray-500">
-                    {new Date(obs.timestamp).toLocaleString()}
+                  <td className="px-6 lg:px-8 py-5 text-xs font-medium text-gray-500 whitespace-nowrap">
+                    <span title={new Date(obs.timestamp).toLocaleString()}>
+                      {formatDistanceToNow(new Date(obs.timestamp), { addSuffix: true, locale: zhCN })}
+                    </span>
                   </td>
                   <td className="px-6 lg:px-8 py-5">
                     <span className="px-2 py-1 bg-st-blue text-white text-[9px] font-black uppercase tracking-wider">

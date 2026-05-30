@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "./components/AuthProvider";
+import { useToast } from "./components/common/Toast";
 import { useServerData } from "./hooks/useServerData";
 import { useAnalytics } from "./hooks/useAnalytics";
 import { Sidebar } from "./components/layout/Sidebar";
@@ -19,6 +20,7 @@ import { AuthScreen } from "./components/auth/AuthScreen";
 
 export default function App() {
   const { user, loading: authLoading, login, logout } = useAuth();
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("dashboard");
   const [selectedObs, setSelectedObs] = useState<Observation | null>(null);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
@@ -56,13 +58,19 @@ export default function App() {
   );
   const handleConfirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
-    if (deleteTarget.type === "observation") {
-      await deleteObservation(deleteTarget.id);
-    } else {
-      await deleteStrategy(deleteTarget.id);
+    try {
+      if (deleteTarget.type === "observation") {
+        await deleteObservation(deleteTarget.id);
+        toast("监测记录已删除", "success");
+      } else {
+        await deleteStrategy(deleteTarget.id);
+        toast("监测策略已删除", "success");
+      }
+    } catch {
+      toast("删除失败，请重试");
     }
     setDeleteTarget(null);
-  }, [deleteTarget, deleteObservation, deleteStrategy]);
+  }, [deleteTarget, deleteObservation, deleteStrategy, toast]);
 
   // ─── Auth Loading ──────────────────────────────────────────
   if (authLoading) {

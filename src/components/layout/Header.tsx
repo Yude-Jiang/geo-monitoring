@@ -33,7 +33,7 @@ export function Header({ activeTab, isRunningTask, onRunTask, onSetupAll, lastSy
         </p>
       </div>
       <div className="flex items-center gap-6">
-        <div className="hidden sm:flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+        <div className="hidden sm:flex items-center gap-2 text-xs font-medium text-gray-400 uppercase tracking-wider">
           <Clock size={14} className="text-st-yellow" />
           上次同步: {lastSyncAt ? formatDistanceToNow(lastSyncAt, { addSuffix: true, locale: zhCN }) : "从未"}
         </div>

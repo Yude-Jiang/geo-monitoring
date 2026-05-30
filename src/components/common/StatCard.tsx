@@ -25,7 +25,7 @@ export function StatCard({
         accent === "yellow" && "border-t-st-yellow"
       )}
     >
-      <p className="text-[9px] font-black text-gray-400 uppercase tracking-[0.3em] mb-2">
+      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
         {label}
       </p>
       <div className="flex items-end justify-between">
@@ -34,7 +34,7 @@ export function StatCard({
         </h4>
         <div
           className={cn(
-            "flex items-center gap-0.5 text-[10px] font-black px-2 py-1 shadow-sm",
+            "flex items-center gap-0.5 text-xs font-bold px-2 py-1 shadow-sm",
             trend === "—" ? "bg-st-grey text-gray-400" :
             trendUp ? "bg-emerald-50 text-emerald-600" : "bg-st-red/10 text-st-red"
           )}
@@ -44,7 +44,7 @@ export function StatCard({
         </div>
       </div>
       <div className="mt-6 pt-4 border-t border-gray-50 flex items-center justify-between">
-        <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-1.5">
+        <p className="text-xs text-gray-400 font-medium uppercase tracking-wider flex items-center gap-1.5">
           <Clock
             size={10}
             className={

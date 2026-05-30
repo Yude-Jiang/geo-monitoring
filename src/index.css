@@ -39,6 +39,21 @@
   .st-sidebar-item-active {
     @apply bg-white/10 text-st-yellow border-st-yellow;
   }
+
+  /* Typography floor — minimum readable sizes */
+  .st-label-xs {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-gray-500, #94a3b8);
+  }
+  .st-label-sm {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
 }
 
 /* Custom Grid Background */
